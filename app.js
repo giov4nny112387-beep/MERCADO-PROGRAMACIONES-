@@ -638,7 +638,7 @@ function handleAisleScroll(containerArg) {
 }
 
 function renderScheduleTable(data, visibleDates) {
-    const readOnly = currentRole === 'marcaciones';
+    const readOnly = currentRole === 'marcaciones' || currentRole === 'vermimalla';
     const visibleWeeks =[]; if (visibleDates.length > 0) { let currentWeek =[]; visibleDates.forEach(dateStr => { currentWeek.push(dateStr); if (new Date(dateStr + 'T00:00:00').getDay() === 0) { visibleWeeks.push(currentWeek); currentWeek =[]; } }); if (currentWeek.length > 0) visibleWeeks.push(currentWeek); }
     const tableTitle = readOnly ? '📅 Horario de Personal' : '📅 Horario de Personal (Editable)';
     let tableHTML = `<h2 style="color: #1a237e;">${tableTitle}</h2><table class="schedule-table"><thead><tr>`;
@@ -2978,9 +2978,34 @@ document.addEventListener('DOMContentLoaded', () => {
     attachEvt('toggleFullscreenBtn', 'click', () => {
         isFullscreen = !isFullscreen;
         const sidebar = document.getElementById('sidebarMenu'); const initPanel = document.getElementById('initialConfigPanel');
-        if (isFullscreen) { if(sidebar) sidebar.classList.add('fullscreen-hidden'); if(initPanel) initPanel.classList.add('fullscreen-hidden'); } 
+        if (isFullscreen) { if(sidebar) sidebar.classList.add('fullscreen-hidden'); if(initPanel) initPanel.classList.add('fullscreen-hidden'); }
         else { if(sidebar) sidebar.classList.remove('fullscreen-hidden'); if(initPanel) initPanel.classList.remove('fullscreen-hidden'); }
     });
+
+    // Toggle sidebar en móvil
+    function openMobileSidebar() {
+        const sb = document.getElementById('sidebarMenu');
+        const ov = document.getElementById('sidebarOverlay');
+        if (sb) sb.classList.add('sidebar-open');
+        if (ov) ov.classList.add('active');
+    }
+    function closeMobileSidebar() {
+        const sb = document.getElementById('sidebarMenu');
+        const ov = document.getElementById('sidebarOverlay');
+        if (sb) sb.classList.remove('sidebar-open');
+        if (ov) ov.classList.remove('active');
+    }
+    attachEvt('sidebarToggleBtn', 'click', openMobileSidebar);
+    attachEvt('sidebarOverlay',   'click', closeMobileSidebar);
+    // Cerrar sidebar al pulsar cualquier botón del sidebar en móvil
+    const sidebarMenu = document.getElementById('sidebarMenu');
+    if (sidebarMenu) {
+        sidebarMenu.addEventListener('click', (e) => {
+            if (e.target.classList.contains('sidebar-btn') && window.innerWidth <= 768) {
+                closeMobileSidebar();
+            }
+        });
+    }
 
     // Manejo de selección de rol
     document.querySelectorAll('.btn-role').forEach(btn => {
