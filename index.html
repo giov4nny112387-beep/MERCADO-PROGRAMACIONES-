@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KRONOMERCADO V2</title>
+    <script>if (typeof module === 'object') {window.module = module; module = undefined;}</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>if (window.module) module = window.module;</script>
+    <link rel="stylesheet" href="style.css">
+    <style id="dynamic-styles"></style>
+</head>
+<body>
+
+    <div id="toast-container" class="toast-container"></div>
+    <button id="toggleFullscreenBtn" class="floating-toggle-btn" title="Alternar Pantalla Grande">⛶</button>
+
+    <!-- VISTA 1: LOGIN -->
+    <div id="view-login" class="view-container active-view">
+        <div class="login-card">
+            <div class="login-icon">🛒</div>
+            <h2>Bienvenido a KRONOMERCADO V2</h2>
+
+            <!-- Paso 0: Selección de Rol -->
+            <div id="step-role">
+                <p>¿Cómo deseas ingresar?</p>
+                <div class="role-grid">
+                    <button class="btn-role" data-role="admin">
+                        <span class="role-icon">🔧</span>
+                        <span class="role-label">Administrador</span>
+                    </button>
+                    <button class="btn-role" data-role="marcaciones">
+                        <span class="role-icon">📋</span>
+                        <span class="role-label">Marcaciones</span>
+                    </button>
+                    <button class="btn-role btn-role-malla" data-role="vermimalla">
+                        <span class="role-icon">📅</span>
+                        <span class="role-label">Ver Mi Malla</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Paso 1: Selección de Tienda -->
+            <div id="step-store" style="display:none;">
+                <p>¿De qué tienda eres? Selecciona para continuar.</p>
+                <div class="store-grid">
+                    <button class="btn-store" data-store="AKCAN">AKCAN</button>
+                    <button class="btn-store" data-store="AKCAL">AKCAL</button>
+                    <button class="btn-store" data-store="AKFLO">AKFLO</button>
+                    <button class="btn-store" data-store="AKPER">AKPER</button>
+                    <button class="btn-store" data-store="AKYOP">AKYOP</button>
+                    <button class="btn-store" data-store="AKBAR">AKBAR</button>
+                    <button class="btn-store" data-store="AKSIN">AKSIN</button>
+                    <button class="btn-store" data-store="AKB68">AKB68</button>
+                    <button class="btn-store" data-store="AK170">AK170</button>
+                    <button class="btn-store" data-store="AKVEN">AKVEN</button>
+                    <button class="btn-store" data-store="AKEDE">AKEDE</button>
+                    <button class="btn-store" data-store="AKB30">AKB30</button>
+                    <button class="btn-store" data-store="AKMOS">AKMOS</button>
+                    <button class="btn-store" data-store="AKVIL">AKVIL</button>
+                </div>
+                <button id="backToRoleBtn" class="btn-back-store">← Cambiar Módulo</button>
+            </div>
+
+            <!-- Paso 2: Contraseña -->
+            <div id="step-password" style="display:none;">
+                <p>Módulo: <strong id="role-selected-label" style="color: #1565c0;"></strong> &nbsp;|&nbsp; Tienda: <strong id="store-selected-label" style="color: #f57c00;"></strong></p>
+                <input type="password" id="passwordInput" placeholder="Contraseña" class="login-input">
+                <button id="loginBtn" class="btn-corporate">Ingresar al Sistema</button>
+                <button id="backToStoreBtn" class="btn-back-store">← Cambiar Tienda</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- VISTA 2: APLICACIÓN PRINCIPAL -->
+    <div id="view-app" class="view-container app-layout">
+        
+        <aside class="sidebar" id="sidebarMenu">
+            <div class="sidebar-header">
+                <div class="brand-logo">KRONOMERCADO</div>
+                <div class="brand-version">v2.7.0 </div>
+                <div id="store-label" class="brand-store"></div>
+            </div>
+
+            <div class="sidebar-content">
+
+                <!-- Estado de sincronización — siempre visible -->
+                <div class="sidebar-sync-bar">
+                    <div id="sheetsSyncStatus" class="sheets-sync-status"></div>
+                </div>
+
+                <!-- Grupos colapsables (solo tras login) -->
+                <div id="sidebar-tools" style="display: none;">
+
+                    <div class="sidebar-group">
+                        <div class="sidebar-group-header">MI PLANTA</div>
+                        <div class="sidebar-group-body">
+                            <button id="plantManagerBtn" class="sidebar-btn">🌿 Administrar mi Planta</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-group">
+                        <div class="sidebar-group-header">PANEL Y ANÁLISIS</div>
+                        <div class="sidebar-group-body">
+                            <button id="coverageBtn" class="sidebar-btn">🔍 Analizar Cobertura</button>
+                            <button id="distributionBtn" class="sidebar-btn">🔢 Ver Conteo por Turno</button>
+                            <button id="staffDistributionBtn" class="sidebar-btn">🧑‍🤝‍🧑 Dist. y Rotación</button>
+                            <button id="krebsReportBtn" class="sidebar-btn">🔬 Ciclo Krebs</button>
+                            <button id="tasksReportBtn" class="sidebar-btn">📌 Ejecución de Tareas</button>
+                            <button id="correctionBtn" class="sidebar-btn">⏱️ Corrección de Horas</button>
+                            <button id="seasonBtn" class="sidebar-btn">🍂 Aplicar Temporadas</button>
+                            <button id="massChangeBtn" class="sidebar-btn" style="display: none;">🔄 Cambio Masivo</button>
+                            <button id="equidadBtn" class="sidebar-btn">⚖️ Análisis de Equidad</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-group">
+                        <div class="sidebar-group-header">EXPORTAR</div>
+                        <div class="sidebar-group-body">
+                            <button id="downloadBtn" class="sidebar-btn">⬇️ Descargar Excel</button>
+                            <button id="sheetsSyncBtn" class="sidebar-btn btn-sheets">☁️ Guardar en Sheets</button>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Google Sheets — siempre visible -->
+                <div class="sidebar-group open">
+                    <div class="sidebar-group-header">GOOGLE SHEETS</div>
+                    <div class="sidebar-group-body">
+                        <button id="loadFromProgBtn" class="sidebar-btn btn-sheets">🔄 Sincronizar con PROG</button>
+                        <button id="sheetsConfigBtn" class="sidebar-btn btn-sheets-config">⚙️ Configurar URL</button>
+                    </div>
+                </div>
+
+                <!-- Sistema -->
+                <div class="sidebar-group open">
+                    <div class="sidebar-group-header">SISTEMA</div>
+                    <div class="sidebar-group-body">
+                        <button id="restoreSessionBtn" class="sidebar-btn btn-highlight" style="display:none;" title="Se encontraron datos previos.">📂 Restaurar Sesión</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="sidebar-footer">
+                <button id="logoutBtn" class="sidebar-btn btn-logout">⏻ Cerrar Turno Físico</button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="dashboard-header">
+                <h1>Panel de Configuración de Horarios</h1>
+                <div id="saveIndicator">💾 Guardado</div>
+            </div>
+
+            <div class="setup-card" id="initialConfigPanel">
+                <h3 style="margin-top:0; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px;">1. Configuración Inicial</h3>
+                <div class="controls">
+                    <div class="control-group"><label for="startDate">Fecha de inicio (DOM):</label><input type="date" id="startDate"></div>
+                    <div class="control-group"><label for="numDays">Días a cargar:</label><input type="number" id="numDays" min="14" step="14" placeholder="Ej: 28"></div>
+                    <div class="control-group" style="display: none;"><label for="minStaff">Mínimo de personal:</label><input type="number" id="minStaff" min="0" value="1"></div>
+                    <div style="align-self: flex-end; display: flex; flex-direction: column; gap: 6px; margin-bottom: 3px;">
+                        <button id="loadFromSheetsBtn" class="btn-corporate btn-sheets-load">☁️ Cargar desde Google Sheets</button>
+                    </div>
+                </div>
+                <div id="progInfoBar" style="display:none; align-items:center; gap:12px; margin-top:8px; padding:8px 12px; background:#e8f5e9; border:1px solid #a5d6a7; border-radius:6px; font-size:13px; color:#1b5e20; flex-wrap:wrap;">
+                    <span>📅 Último día cargado: <strong id="lastProgDate"></strong></span>
+                    <button id="extendFromSheetsBtn" class="btn-corporate btn-sheets-load" style="padding:5px 12px; font-size:12px; margin:0;">➕ Extender Programación</button>
+                </div>
+                <div id="message" style="display: none;"></div>
+            </div>
+
+            <div class="filter-controls setup-card" id="filterControls">
+                <div class="filter-group"><label for="pasilloFilter">Filtrar por Pasillo:</label><select id="pasilloFilter"><option value="">Todos</option></select></div>
+                <div class="filter-group"><label for="restriccionFilter">Filtrar por Cod Nomi:</label><select id="restriccionFilter"><option value="">Todos</option><option value="SI">SI</option><option value="NO">NO</option></select></div>
+                <div class="filter-group"><label for="nameSearch">Buscar por Nombre:</label><input type="text" id="nameSearch" placeholder="Escriba un nombre..."></div>
+                <div class="filter-group"><label for="dateFromFilter">Desde la Fecha:</label><input type="date" id="dateFromFilter"></div>
+                <div class="filter-group"><label for="dateToFilter">Hasta la Fecha:</label><input type="date" id="dateToFilter"></div>
+                <button id="clearFiltersBtn" class="btn-corporate" style="background-color: #d32f2f;">Limpiar Filtros</button>
+            </div>
+
+            <!-- Contenedores -->
+            <div id="plantManagerContainer" class="setup-card" style="display:none;"></div>
+            <div id="krebsReportContainer" style="display:none;"></div>
+            <div id="tasksReportContainer" style="display:none;"></div>
+            <div id="equidadReportContainer" style="display:none;"></div>
+            <div id="staffDistributionContainer" style="display:none;"></div>
+            <div id="coverageAnalysisContainer" style="display:none;"></div>
+            <div id="summaryContainer"></div>
+            <div id="distributionAnalysisContainer"></div>
+            <div id="monthFilterBar"></div>
+            <div id="outputContainer"></div>
+        </main>
+    </div>
+
+    <!-- MATRIX LOADING OVERLAY -->
+    <div id="matrixLoadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:999999; background:#000; flex-direction:column; justify-content:center; align-items:center;">
+        <canvas id="matrixCanvas" style="position:absolute; top:0; left:0; width:100%; height:100%;"></canvas>
+        <div style="position:relative; z-index:1; text-align:center; font-family:'Courier New', monospace; pointer-events:none; user-select:none;">
+            <div id="matrixLogo" style="font-size:2.8em; font-weight:900; color:#f57c00; letter-spacing:6px; animation:matrixGlow 2s ease-in-out infinite;">KRONOMERCADO</div>
+            <div id="matrixStoreName" style="font-size:1.1em; color:#00e676; letter-spacing:8px; margin:10px 0 28px; animation:matrixPulse 1.5s ease-in-out infinite;"></div>
+            <div style="display:flex; gap:10px; justify-content:center; margin-bottom:22px;">
+                <span class="matrix-dot" style="animation-delay:0s;"></span>
+                <span class="matrix-dot" style="animation-delay:0.2s;"></span>
+                <span class="matrix-dot" style="animation-delay:0.4s;"></span>
+            </div>
+            <div id="matrixStatus" style="font-size:0.82em; color:#78909c; letter-spacing:3px; min-height:1.4em; transition:opacity 0.3s;">INICIANDO CONEXIÓN...</div>
+        </div>
+    </div>
+
+    <!-- VISTA 3: LOGOUT -->
+    <div id="view-logout" class="view-container">
+        <div class="logout-card">
+            <div class="logout-icon">🛡️</div>
+            <h2>Turno Cerrado Correctamente</h2>
+            <button id="reloginBtn" class="btn-corporate btn-blue">Volver a Iniciar Sesión</button>
+        </div>
+    </div>
+
+    <!-- MODALES -->
+
+    <!-- Modal de Selección Manual de Pareja de Rotación -->
+    <div id="manualPickerModal" class="modal-overlay">
+        <div class="modal-content" style="max-width:580px;">
+            <h3 style="color:#1a237e;margin-bottom:6px;">🎯 Selección Manual de Cambio</h3>
+            <p style="margin-bottom:4px;">Rotando: <strong id="mpNameA" style="color:#d32f2f;"></strong> &nbsp;<span id="mpAisleBadgeA"></span></p>
+            <p style="font-size:0.83em;color:#666;margin-bottom:6px;">Las personas con 🔓 ya tienen un cambio asignado. Haz clic en 🔓 para habilitarlas. Luego haz clic en la fila para seleccionar.</p>
+            <div style="display:flex;gap:14px;align-items:center;font-size:0.79em;color:#555;background:#f5f5f5;padding:5px 10px;border-radius:5px;margin-bottom:10px;flex-wrap:wrap;">
+                <b style="color:#333;">ADN:</b>
+                <span style="display:flex;align-items:center;gap:4px;"><span style="width:11px;height:11px;border-radius:2px;background:#43a047;display:inline-block;"></span>Turno idéntico</span>
+                <span style="display:flex;align-items:center;gap:4px;"><span style="width:11px;height:11px;border-radius:2px;background:#FFFF00;border:1px solid #ccc;display:inline-block;"></span>Mismo tipo</span>
+                <span style="display:flex;align-items:center;gap:4px;"><span style="width:11px;height:11px;border-radius:2px;background:#e0e0e0;display:inline-block;"></span>Sin coincidencia</span>
+            </div>
+            <input type="hidden" id="mpHiddenSeatA">
+            <div id="mpWorkerList" style="max-height:380px;overflow-y:auto;border:1px solid #ddd;border-radius:6px;margin-bottom:14px;"></div>
+            <div class="modal-actions">
+                <button id="closeMpModalBtn" class="btn-danger">Cancelar</button>
+                <button id="executeMpSwapBtn" class="btn-success" disabled style="opacity:0.5;">Agregar a Rotación 🔄</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Intercambio de Sillas -->
+    <div id="swapModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3 style="color: #1a237e;">🔄 Agregar Rotación</h3>
+            <p style="margin-bottom: 5px;">Estás a punto de agregar a <strong id="swapNameA" style="color:#d32f2f;"></strong> (pasillo <strong id="swapAisleA"></strong>) a la cola de rotaciones.</p>
+            <p style="font-size:0.9em; color:#555; margin-bottom: 20px;">Selecciona la persona con la que intercambiará. Una vez agregues todas las rotaciones, usa <b>Confirmar y Aplicar</b> en el panel de distribución para hacerlas efectivas:</p>
+            
+            <input type="hidden" id="swapHiddenSeatA">
+            <select id="swapTargetSelect" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px;"></select>
+            
+            <div class="modal-actions">
+                <button id="closeSwapModalBtn" class="btn-danger">Cancelar</button>
+                <button id="executeSwapBtn" class="btn-success">Agregar a Rotación 🔄</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="massChangeModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 800px;">
+            <h3 style="color: #1a237e;">🔄 Cambio Masivo Dinámico</h3>
+            <p style="font-size: 0.9em; color: #666;">Seleccione los turnos que desea transformar.</p>
+            <div style="display: flex; gap: 20px; margin-top: 15px;">
+                <div style="flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background: #f9f9f9;">
+                    <label style="display: block; margin-bottom: 10px; color: #d32f2f;"><strong>1. Turnos de Origen:</strong></label>
+                    <div id="originShiftsContainer" style="max-height: 250px; overflow-y: auto; border-top: 1px solid #eee; padding-top: 5px;"></div>
+                </div>
+                <div style="flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background: #f0f4f8;">
+                    <label style="display: block; margin-bottom: 10px; color: #1a237e;"><strong>2. Turno Destino:</strong></label>
+                    <select id="toShiftSelect" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;"></select>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button id="closeMassChangeModalBtn" class="btn-danger">Cancelar</button>
+                <button id="empalmeBtn" class="btn-circular"><span>EMPALME CIERRE APERTURA</span></button>
+                <button id="applyMassChangeBtn" class="btn-success">Aplicar Cambio</button>
+            </div>
+            <div id="massChangeMessage" style="margin-top: 15px; font-weight: bold;"></div>
+        </div>
+    </div>
+
+    <div id="metricsModal" class="modal-overlay">
+        <div class="modal-content" id="metricsContent">
+            <h3 style="color: #1a237e;">Métricas del Proceso</h3>
+            <div id="metricsBody" style="font-weight:bold; line-height:1.5;"></div>
+            <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;"><button id="closeMetricsBtn" class="btn-success">Cerrar</button></div>
+        </div>
+    </div>
+
+    <div id="correctionSummaryModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <h3 style="color: #1a237e;">📊 Resumen de Horas</h3>
+            <div style="margin: 20px 0; font-size: 1.1em;">
+                <p>Semanas Correctas (Auxiliares) ✅: <strong id="countWeeksGood" style="color: green;">0</strong></p>
+                <p>Dias sin horas Min o Max ⚠️: <strong id="countWeeksBad" style="color: red;">0</strong></p>
+            </div>
+            <button onclick="document.getElementById('correctionSummaryModal').style.display='none'" class="btn-success">Aceptar</button>
+        </div>
+    </div>
+
+    <!-- Modal de Configuración Google Sheets -->
+    <div id="sheetsConfigModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 560px;">
+            <h3 style="color: #1a237e;">☁️ Google Sheets — Configuración de Sincronización</h3>
+            <p style="font-size:0.88em; color:#555; margin-bottom:12px;">
+                Pega aquí la URL de tu <strong>Google Apps Script Web App</strong>. La programación se guardará automáticamente en la pestaña <code>PROG_TIENDA</code> de tu Google Sheets cada vez que generes o modifiques el horario.
+            </p>
+            <input type="url" id="sheetsUrlInput"
+                   placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                   style="width:100%; padding:10px; border:1px solid #ccc; border-radius:6px; box-sizing:border-box; font-size:0.9em; margin-bottom:10px;">
+            <div style="background:#f0f4ff; border-radius:6px; padding:10px 12px; font-size:0.8em; color:#333; margin-bottom:16px; line-height:1.7;">
+                <strong>¿Cómo obtener la URL?</strong><br>
+                1. Abre tu Google Sheets → <em>Extensiones → Apps Script</em><br>
+                2. Borra todo y pega el código del archivo <code>google-apps-script.js</code><br>
+                3. Clic en <em>Implementar → Nueva implementación</em><br>
+                4. Tipo: <em>Aplicación web</em> · Ejecutar como: <em>Yo</em> · Acceso: <em>Cualquier usuario</em><br>
+                5. Copia la URL generada y pégala aquí
+            </div>
+            <div class="modal-actions">
+                <button id="closeSheetsConfigBtn" class="btn-danger">Cancelar</button>
+                <button id="clearSheetsUrlBtn" class="btn-back-store">Borrar URL</button>
+                <button id="saveSheetsUrlBtn" class="btn-success">Guardar y Probar</button>
+            </div>
+            <div id="sheetsConfigMessage" style="margin-top:12px; font-size:0.88em; font-weight:bold;"></div>
+        </div>
+    </div>
+
+    <!-- TASK PICKER POPUP -->
+    <div id="taskPickerPopup" style="display:none; position:fixed; z-index:99999;"></div>
+
+    <!-- CONFIRMACIÓN CARGA DESDE SHEETS (2 pasos) -->
+    <div id="sheetsConfirmOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:99998; background:rgba(0,0,0,0.82); flex-direction:column; justify-content:center; align-items:center;">
+
+        <!-- PASO 1: Advertencia -->
+        <div id="sheetsConfirmStep1" style="background:#fff; border-radius:18px; padding:50px 44px 40px; max-width:560px; width:92%; text-align:center; box-shadow:0 30px 80px rgba(0,0,0,0.5); position:relative;">
+            <div style="width:72px; height:72px; border-radius:50%; background:#fff3e0; display:flex; align-items:center; justify-content:center; margin:0 auto 22px; font-size:2.2em; border:3px solid #f57c00;">⚠️</div>
+            <h2 style="margin:0 0 12px; color:#b71c1c; font-size:1.6em; font-weight:900; letter-spacing:0.5px;">¿Desea cargar nuevos datos?</h2>
+            <p style="color:#555; font-size:1.05em; line-height:1.65; margin:0 0 10px;">Esta acción descargará la programación desde Google Sheets.</p>
+            <div style="background:#fff3e0; border:2px solid #ffb74d; border-radius:10px; padding:16px 20px; margin:18px 0 30px; text-align:left;">
+                <p style="margin:0; color:#e65100; font-weight:700; font-size:0.97em; line-height:1.6;">
+                    ⚠️ <strong>ADVERTENCIA:</strong> Si ya tiene una programación activa, <strong>todos los datos actuales serán reemplazados</strong> por los datos descargados desde Google Sheets.<br><br>
+                    Las rotaciones pendientes, cambios sin guardar y ajustes manuales <strong>se perderán de forma permanente</strong>.
+                </p>
+            </div>
+            <div style="display:flex; gap:14px; justify-content:center;">
+                <button id="sheetsConfirmNo" style="padding:13px 32px; border-radius:9px; border:2px solid #bbb; background:#f5f5f5; color:#444; font-size:1em; font-weight:700; cursor:pointer;">✕ Cancelar</button>
+                <button id="sheetsConfirmYes" style="padding:13px 36px; border-radius:9px; border:none; background:linear-gradient(135deg,#f57c00,#ef6c00); color:#fff; font-size:1em; font-weight:900; cursor:pointer; letter-spacing:0.5px; box-shadow:0 4px 16px rgba(245,124,0,0.35);">Sí, continuar →</button>
+            </div>
+        </div>
+
+        <!-- PASO 2: Contraseña -->
+        <div id="sheetsConfirmStep2" style="display:none; background:#fff; border-radius:18px; padding:50px 44px 40px; max-width:460px; width:92%; text-align:center; box-shadow:0 30px 80px rgba(0,0,0,0.5);">
+            <div style="width:72px; height:72px; border-radius:50%; background:#e8f5e9; display:flex; align-items:center; justify-content:center; margin:0 auto 22px; font-size:2.2em; border:3px solid #43a047;">🔐</div>
+            <h2 style="margin:0 0 8px; color:#1a237e; font-size:1.5em; font-weight:900;">Verificación de acceso</h2>
+            <p style="color:#666; font-size:0.97em; margin:0 0 26px;">Ingrese su contraseña para autorizar la descarga de datos.</p>
+            <input id="sheetsConfirmPwd" type="password" placeholder="Contraseña..." style="width:100%; box-sizing:border-box; padding:14px 18px; border-radius:9px; border:2px solid #ddd; font-size:1.05em; text-align:center; letter-spacing:3px; outline:none; margin-bottom:10px; transition:border-color 0.2s;">
+            <p id="sheetsConfirmPwdError" style="color:#c62828; font-size:0.88em; min-height:1.2em; margin:2px 0 18px; font-weight:600;"></p>
+            <div style="display:flex; gap:14px; justify-content:center;">
+                <button id="sheetsConfirmBack" style="padding:13px 28px; border-radius:9px; border:2px solid #bbb; background:#f5f5f5; color:#444; font-size:1em; font-weight:700; cursor:pointer;">← Atrás</button>
+                <button id="sheetsConfirmPwdOk" style="padding:13px 36px; border-radius:9px; border:none; background:linear-gradient(135deg,#43a047,#2e7d32); color:#fff; font-size:1em; font-weight:900; cursor:pointer; box-shadow:0 4px 16px rgba(67,160,71,0.35);">☁️ Descargar datos</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
