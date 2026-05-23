@@ -686,7 +686,7 @@ function renderScheduleTable(data, visibleDates) {
                 }
                 tableHTML += `<td class="shift-td ${tdClass}" data-worker-id="${rowData.id}" data-date-str="${dateStr}">${shiftCellContent}</td>`;
             });
-            const validHours =[0, 7, 14, 35, 42, 49]; const totalInt = Math.round(weeklyTotal); const isError = !validHours.includes(totalInt);
+            const validHours =[0, 7, 14, 21, 28, 35, 42, 49]; const totalInt = Math.round(weeklyTotal); const isError = !validHours.includes(totalInt);
             tableHTML += `<td class="total-horas-cell ${isError ? 'hour-error-cell' : ''}">${weeklyTotal}${isError ? ' <span class="warning-icon">⚠️</span>' : ''}</td>`;
         });
         tableHTML += '</tr>';
@@ -3172,7 +3172,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
         renderAll(); saveAppState();
-        const validHours =[0, 7, 14, 35, 42, 49]; let goodWeeks = 0; let badWeeks = 0;
+        const validHours =[0, 7, 14, 21, 28, 35, 42, 49]; let goodWeeks = 0; let badWeeks = 0;
         appState.processedData.forEach(worker => { appState.weeks.forEach(weekDates => { let total = weekDates.reduce((sum, d) => sum + (worker.dailyData[d]?.hours || 0), 0); if (validHours.includes(Math.round(total))) goodWeeks++; else badWeeks++; }); });
         document.getElementById('countWeeksGood').textContent = goodWeeks; document.getElementById('countWeeksBad').textContent = badWeeks;
         document.getElementById('correctionSummaryModal').style.display = 'flex';
