@@ -686,7 +686,7 @@ function renderScheduleTable(data, visibleDates) {
                 }
                 tableHTML += `<td class="shift-td ${tdClass}" data-worker-id="${rowData.id}" data-date-str="${dateStr}">${shiftCellContent}</td>`;
             });
-            const validHours =[0, 7, 35, 42, 49]; const totalInt = Math.round(weeklyTotal); const isError = !validHours.includes(totalInt);
+            const validHours =[0, 7, 14, 35, 42, 49]; const totalInt = Math.round(weeklyTotal); const isError = !validHours.includes(totalInt);
             tableHTML += `<td class="total-horas-cell ${isError ? 'hour-error-cell' : ''}">${weeklyTotal}${isError ? ' <span class="warning-icon">⚠️</span>' : ''}</td>`;
         });
         tableHTML += '</tr>';
@@ -1645,29 +1645,34 @@ function renderPlantManager() {
         container.style.display = 'block';
         return;
     }
+    const allAisles = [...new Set(appState.workerMasterData.map(m => m.pasillo).filter(Boolean))].sort();
     let html = `
     <div style="padding:10px; border-bottom:2px dashed #b0bec5; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0; color:#1a237e;">👥 Administrar mi Planta</h3>
+        <h3 style="margin:0; color:#1a237e;">🏭 Administrar mi Planta</h3>
         <button onclick="document.getElementById('plantManagerContainer').style.display='none'; document.getElementById('plantManagerBtn')?.classList.remove('sidebar-btn--active');" class="btn-danger" style="padding:5px 15px; font-size:0.9em;">Cerrar</button>
     </div>
     <div class="summary-container" style="margin-top:0;">
     <table class="summary-table plant-table" style="width:100%;">
         <thead><tr>
-            <th>TRABAJADOR</th><th>NOMBRE</th><th>INICIA (Vac.)</th><th>FINALIZA (Vac.)</th><th>EQUIPO</th><th>PASILLO</th><th>RESTRICCIÓN</th>
+            <th>TRABAJADOR</th><th>NOMBRE</th><th>INICIA (Vac.)</th><th>FINALIZA (Vac.)</th><th>PASILLO</th><th>COD NOMINA</th>
         </tr></thead><tbody>`;
     appState.workerMasterData.forEach(m => {
         const isSwapped = appState.swappedSeats.has(m.id);
         const placeholderTag = m.isPlaceholder
             ? `<span title="Puesto vacante — excluido de turnos y métricas" style="display:inline-block;margin-left:6px;font-size:0.72em;font-weight:700;letter-spacing:1px;padding:1px 6px;border-radius:3px;background:#fff3e0;color:#e65100;border:1px solid #ffb74d;">VACANTE</span>`
             : '';
+        const nombreUpper = m.nombre.toUpperCase();
+        const needsPasilloDropdown = /\bTEMPORAL\b/.test(nombreUpper) || /\bSENA\b/.test(nombreUpper);
+        const pasilloCell = needsPasilloDropdown
+            ? `<select class="plant-input plant-pasillo-input" data-worker-id="${m.id}">${allAisles.map(a => `<option value="${a}"${a === m.pasillo ? ' selected' : ''}>${a}</option>`).join('')}</select>`
+            : `<span id="plant-pasillo-${m.id}" style="${isSwapped ? 'color:var(--corp-orange); font-weight:bold;' : ''}">${m.pasillo}${isSwapped ? ' 🔄' : ''}</span>`;
         html += `<tr style="${m.isPlaceholder ? 'opacity:0.6;background:#fff8f1;' : ''}">
             <td style="font-weight:bold; color:#1a237e;">${m.workerExcelId}${placeholderTag}</td>
             <td><input type="text" class="plant-input plant-name-input" data-worker-id="${m.id}" value="${m.nombre.replace(/"/g,'&quot;')}"></td>
             <td><input type="date" class="plant-input plant-inicia-input" data-worker-id="${m.id}" value="${m.inicia}"></td>
             <td><input type="date" class="plant-input plant-finaliza-input" data-worker-id="${m.id}" value="${m.finaliza}"></td>
-            <td>${m.equipo}</td>
-            <td id="plant-pasillo-${m.id}" style="${isSwapped ? 'color:var(--corp-orange); font-weight:bold;' : ''}">${m.pasillo}${isSwapped ? ' 🔄' : ''}</td>
-            <td><select class="plant-input plant-restriccion-input" data-worker-id="${m.id}"><option value="NO" ${m.restriccion.toUpperCase() !== 'SI' ? 'selected' : ''}>NO</option><option value="SI" ${m.restriccion.toUpperCase() === 'SI' ? 'selected' : ''}>SI</option></select></td>
+            <td>${pasilloCell}</td>
+            <td><input type="text" class="plant-input plant-restriccion-input" data-worker-id="${m.id}" value="${(m.restriccion || '').replace(/"/g,'&quot;')}" placeholder="Cód. Nómina"></td>
         </tr>`;
     });
     html += `</tbody></table></div>`;
@@ -1700,7 +1705,7 @@ function renderKrebsReport() {
 
     let html = `
     <div style="padding:10px; border-bottom:2px dashed #b0bec5; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0; color:#1a237e;">🔬 Ciclo Krebs — Historial de Rotaciones por Persona</h3>
+        <h3 style="margin:0; color:#1a237e;">🔄 Análisis Ciclos de Esfuerzo por Auxiliar</h3>
         <button onclick="document.getElementById('krebsReportContainer').style.display='none'; document.getElementById('krebsReportBtn')?.classList.remove('sidebar-btn--active');" class="btn-danger" style="padding:5px 15px; font-size:0.9em;">Cerrar</button>
     </div>
     <div style="padding:0 10px 10px;">
@@ -2528,17 +2533,9 @@ function updateProgInfoBar() {
 
 // == EXTENSIÓN DE PROGRAMACIÓN SIN BORRAR DÍAS EXISTENTES ==
 async function extendScheduleFromSheets() {
-    if (!appState.processedData.length) {
-        showToast('⚠️ Carga primero una programación antes de extender.', 'warning'); return;
-    }
-    const url = getSheetsUrl();
-    if (!url) { showToast('⚠️ Configura primero la URL de Google Sheets.', 'warning'); return; }
-
+    const url         = getSheetsUrl();
     const lastDate    = appState.dateHeaders[appState.dateHeaders.length - 1];
     const lastDateObj = new Date(lastDate + 'T00:00:00');
-    if (lastDateObj.getDay() !== 6) {
-        showToast('⚠️ El último día de la programación actual no es Sábado. Verifica la programación cargada.', 'warning'); return;
-    }
 
     const daysVal = parseInt(document.getElementById('numDays').value, 10);
     if (!daysVal || daysVal % 14 !== 0) {
@@ -2653,7 +2650,7 @@ async function autoLoadFromProgSheet() {
         return;
     }
 
-    updateSheetsSyncStatus('⏳ Buscando programación en Sheets...', '#1565c0');
+    updateSheetsSyncStatus('⏳ Buscando programación en Base de Datos...', '#1565c0');
 
     const progName   = 'PROG_' + (selectedStore || '');
     const plantaName = 'PLANTA_' + (selectedStore || '');
@@ -2667,7 +2664,7 @@ async function autoLoadFromProgSheet() {
 
         // Sin datos en PROG → usar localStorage como fallback
         if (!progResp.success || !progResp.data || progResp.data.length < 3) {
-            updateSheetsSyncStatus(progResp.success ? '' : '⚠️ Sin datos en Sheets', '#e65100');
+            updateSheetsSyncStatus(progResp.success ? '' : '⚠️ Sin datos en Base de Datos', '#e65100');
             if (currentRole === 'admin' && localStorage.getItem(getStateKey())) document.getElementById('restoreSessionBtn').style.display = 'block';
             return;
         }
@@ -2780,10 +2777,10 @@ async function autoLoadFromProgSheet() {
 
         showToast(`✅ ${processedData.length} trabajadores cargados desde Sheets`, 'success');
         updateProgInfoBar();
-        updateSheetsSyncStatus(`☁️ Restaurado: ${new Date().toLocaleTimeString('es-CO')}`, '#2e7d32');
+        updateSheetsSyncStatus(`🗄️ Base de Datos: restaurado ${new Date().toLocaleTimeString('es-CO')}`, '#2e7d32');
 
     } catch (err) {
-        updateSheetsSyncStatus('⚠️ Error al conectar con Sheets', '#e65100');
+        updateSheetsSyncStatus('⚠️ Error al conectar con Base de Datos', '#e65100');
         if (currentRole === 'admin' && localStorage.getItem(getStateKey())) document.getElementById('restoreSessionBtn').style.display = 'block';
     }
 }
@@ -2845,7 +2842,7 @@ function syncScheduleToSheets(silent = false) {
     .then(result => {
         if (result.success) {
             if (!silent) showToast(`✅ Programación guardada en Google Sheets (${result.rows} trabajadores).`, 'success');
-            updateSheetsSyncStatus(`☁️ Sheets: guardado ${new Date().toLocaleTimeString('es-CO')}`, '#2e7d32');
+            updateSheetsSyncStatus(`🗄️ Base de Datos: guardado ${new Date().toLocaleTimeString('es-CO')}`, '#2e7d32');
         } else {
             showToast(`❌ Error al guardar en Sheets: ${result.error}`, 'error');
             updateSheetsSyncStatus('❌ Error al sincronizar', '#c62828');
@@ -3175,7 +3172,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
         renderAll(); saveAppState();
-        const validHours =[0, 7, 35, 42, 49]; let goodWeeks = 0; let badWeeks = 0;
+        const validHours =[0, 7, 14, 35, 42, 49]; let goodWeeks = 0; let badWeeks = 0;
         appState.processedData.forEach(worker => { appState.weeks.forEach(weekDates => { let total = weekDates.reduce((sum, d) => sum + (worker.dailyData[d]?.hours || 0), 0); if (validHours.includes(Math.round(total))) goodWeeks++; else badWeeks++; }); });
         document.getElementById('countWeeksGood').textContent = goodWeeks; document.getElementById('countWeeksBad').textContent = badWeeks;
         document.getElementById('correctionSummaryModal').style.display = 'flex';
@@ -3393,18 +3390,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 const newFinaliza = finEl ? finEl.value : masterEntry.finaliza;
                 updateWorkerVacation(workerId, newInicia, newFinaliza);
             }
-            if (e.target.classList.contains('plant-restriccion-input')) {
-                const newVal = e.target.value;
+            if (e.target.classList.contains('plant-pasillo-input')) {
+                const newAisle = e.target.value;
                 const worker = appState.processedData.find(w => w.id === workerId);
                 if (worker) {
-                    worker.fixedData[2] = newVal;
-                    worker.restrictionClass = newVal === 'SI' ? 'restriccion-si' : 'restriccion-no';
+                    worker.fixedData[1] = newAisle;
+                    if (worker.dailyData) worker.dailyData.forEach(d => { if (d) d.aisle = newAisle; });
                 }
+                const master = appState.workerMasterData.find(m => m.id === workerId);
+                if (master) master.pasillo = newAisle;
+                populateFilters();
+                renderAll();
+                saveAppState();
+                showToast(`Pasillo de ${worker?.fixedData[0] || ''} actualizado a ${newAisle}.`, 'success');
+            }
+            if (e.target.classList.contains('plant-restriccion-input')) {
+                const newVal = e.target.value.trim();
+                const worker = appState.processedData.find(w => w.id === workerId);
+                if (worker) worker.fixedData[2] = newVal;
                 const master = appState.workerMasterData.find(m => m.id === workerId);
                 if (master) master.restriccion = newVal;
                 renderAll();
                 saveAppState();
-                showToast(`Restricción de ${worker?.fixedData[0] || ''} actualizada a ${newVal}.`, 'success');
+                showToast(`Cód. Nómina de ${worker?.fixedData[0] || master?.nombre || ''} actualizado.`, 'success');
             }
         });
     }
@@ -3590,7 +3598,77 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     attachEvt('sheetsConfirmPwdOk', 'click', _doSheetsLoad);
     document.getElementById('sheetsConfirmPwd').addEventListener('keypress', e => { if (e.key === 'Enter') _doSheetsLoad(); });
-    attachEvt('extendFromSheetsBtn', 'click', () => extendScheduleFromSheets());
+
+    // === MODAL EXTENDER PROGRAMACIÓN ===
+    const _extOverlay  = document.getElementById('extendConfirmOverlay');
+    const _extStep1    = document.getElementById('extendConfirmStep1');
+    const _extStep2    = document.getElementById('extendConfirmStep2');
+    const _extLoading  = document.getElementById('extendLoadingStep');
+    const _extPwdInput = document.getElementById('extendConfirmPwd');
+    const _extPwdError = document.getElementById('extendConfirmPwdError');
+
+    function openExtendConfirm() {
+        if (!appState.processedData.length) {
+            showToast('⚠️ Carga primero una programación antes de extender.', 'warning'); return;
+        }
+        if (!getSheetsUrl()) {
+            showToast('⚠️ Configura primero la URL de Google Sheets.', 'warning'); return;
+        }
+        const lastDate    = appState.dateHeaders[appState.dateHeaders.length - 1];
+        const lastDateObj = new Date(lastDate + 'T00:00:00');
+        if (lastDateObj.getDay() !== 6) {
+            showToast('⚠️ El último día de la programación actual no es Sábado. Verifica la programación cargada.', 'warning'); return;
+        }
+        const fmtOpts = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+        document.getElementById('extendLastDay').textContent = lastDateObj.toLocaleDateString('es-CO', fmtOpts);
+
+        const nextDay = new Date(lastDateObj);
+        nextDay.setDate(nextDay.getDate() + 1);
+        document.getElementById('extendRecommendDate').textContent = nextDay.toLocaleDateString('es-CO', fmtOpts);
+
+        const startVal = document.getElementById('startDate').value;
+        if (startVal) {
+            const sdObj = new Date(startVal + 'T00:00:00');
+            document.getElementById('extendFromDate').textContent = sdObj.toLocaleDateString('es-CO', fmtOpts);
+        } else {
+            document.getElementById('extendFromDate').textContent = '(No seleccionada — por favor elige una fecha)';
+        }
+
+        _extStep1.style.display = 'block';
+        _extStep2.style.display = 'none';
+        _extLoading.style.display = 'none';
+        _extPwdInput.value = '';
+        _extPwdError.textContent = '';
+        _extOverlay.style.display = 'flex';
+    }
+
+    function closeExtendConfirm() {
+        _extOverlay.style.display = 'none';
+        _extPwdInput.value = '';
+        _extPwdError.textContent = '';
+    }
+
+    const _doExtend = async () => {
+        if (_extPwdInput.value === 'ADMIN1') {
+            _extStep2.style.display = 'none';
+            _extLoading.style.display = 'block';
+            await extendScheduleFromSheets();
+            closeExtendConfirm();
+        } else {
+            _extPwdError.textContent = '❌ Contraseña incorrecta. Intente de nuevo.';
+            _extPwdInput.value = '';
+            _extPwdInput.focus();
+            _extPwdInput.style.borderColor = '#c62828';
+            setTimeout(() => { _extPwdInput.style.borderColor = '#ddd'; }, 1200);
+        }
+    };
+
+    attachEvt('extendFromSheetsBtn', 'click', openExtendConfirm);
+    attachEvt('extendConfirmNo',     'click', closeExtendConfirm);
+    attachEvt('extendConfirmYes',    'click', () => { _extStep1.style.display = 'none'; _extStep2.style.display = 'block'; _extPwdInput.focus(); });
+    attachEvt('extendConfirmBack',   'click', () => { _extStep2.style.display = 'none'; _extStep1.style.display = 'block'; _extPwdError.textContent = ''; });
+    attachEvt('extendConfirmPwdOk',  'click', _doExtend);
+    document.getElementById('extendConfirmPwd').addEventListener('keypress', e => { if (e.key === 'Enter') _doExtend(); });
 
     // Google Sheets Sync buttons
     attachEvt('sheetsSyncBtn', 'click', () => syncScheduleToSheets(false));
