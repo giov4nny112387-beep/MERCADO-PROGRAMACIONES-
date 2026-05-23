@@ -90,6 +90,7 @@ body {
 .sidebar-btn:hover { background-color: var(--corp-blue-light); color: var(--white); border-left: 4px solid var(--corp-orange); }
 .sidebar-btn--active { background-color: var(--corp-blue-light); color: var(--corp-orange) !important; border-left: 4px solid var(--corp-orange) !important; font-weight: 700; }
 .sidebar-footer { padding: 15px; border-top: 1px solid rgba(255,255,255,0.1); }
+.sidebar-copyright { margin: 10px 0 0; font-size: 0.65em; color: #4a5a6a; text-align: center; line-height: 1.6; letter-spacing: 0.02em; }
 /* Accordion sidebar */
 .sidebar-group { border-bottom: 1px solid rgba(255,255,255,0.06); }
 .sidebar-group-header { font-size: 0.75em; color: #8fa0b5; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; padding: 10px 20px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; transition: color 0.2s; }
