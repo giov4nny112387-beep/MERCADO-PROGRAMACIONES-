@@ -35,6 +35,7 @@ body {
 
 @keyframes slideInToast { to { transform: translateX(0); opacity: 1; } }
 @keyframes fadeOutToast { to { transform: translateX(100%); opacity: 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Pantalla Grande / Toggle */
 .floating-toggle-btn { position: fixed; top: 20px; right: 20px; z-index: 9000; background-color: var(--corp-orange); color: #ffffff; border: none; border-radius: 50%; width: 50px; height: 50px; font-size: 24px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; }
@@ -215,6 +216,22 @@ th { background-color: var(--corp-blue); color: #ffffff; position: sticky; top: 
 /* Google Sheets Buttons */
 .btn-sheets-load { background-color: #34a853 !important; color: #fff !important; font-weight: 700; letter-spacing: 0.03em; }
 .btn-sheets-load:hover { background-color: #2e7d32 !important; }
+/* Base de Datos Button */
+.btn-db-load {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: linear-gradient(135deg, #1a237e 0%, #283593 60%, #3949ab 100%);
+    color: #fff; font-weight: 800; font-size: 0.95em; letter-spacing: 0.04em;
+    padding: 11px 22px; border: none; border-radius: 10px; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(26,35,126,0.45), inset 0 1px 0 rgba(255,255,255,0.15);
+    transition: transform 0.15s, box-shadow 0.15s;
+    text-transform: uppercase;
+}
+.btn-db-load:hover {
+    background: linear-gradient(135deg, #283593 0%, #3949ab 100%);
+    box-shadow: 0 6px 20px rgba(26,35,126,0.55);
+    transform: translateY(-1px);
+}
+.btn-db-load:active { transform: translateY(0); box-shadow: 0 2px 8px rgba(26,35,126,0.4); }
 /* Google Sheets Sync */
 .btn-sheets { color: #34a853 !important; }
 .btn-sheets:hover { background-color: rgba(52,168,83,0.12) !important; border-left: 4px solid #34a853 !important; color: #34a853 !important; }
