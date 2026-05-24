@@ -15,6 +15,23 @@
     <div id="toast-container" class="toast-container"></div>
     <button id="toggleFullscreenBtn" class="floating-toggle-btn" title="Alternar Pantalla Grande">⛶</button>
 
+    <!-- SPLASH SCREEN -->
+    <div id="splashScreen" class="splash-screen">
+        <div class="splash-grid"></div>
+        <div class="splash-ring r1"></div>
+        <div class="splash-ring r2"></div>
+        <div class="splash-ring r3"></div>
+        <div class="splash-content">
+            <div class="splash-icon">🛒</div>
+            <div class="splash-title">
+                <span class="sl" style="--i:0">K</span><span class="sl" style="--i:1">R</span><span class="sl" style="--i:2">O</span><span class="sl" style="--i:3">N</span><span class="sl" style="--i:4">O</span><span class="sl" style="--i:5">M</span><span class="sl" style="--i:6">E</span><span class="sl" style="--i:7">R</span><span class="sl" style="--i:8">C</span><span class="sl" style="--i:9">A</span><span class="sl" style="--i:10">D</span><span class="sl" style="--i:11">O</span>
+            </div>
+            <div class="splash-sub">Sistema de Programación Inteligente</div>
+            <div class="splash-loader"><div class="splash-loader-bar"></div></div>
+            <div id="splashStatus" class="splash-status">Iniciando sistema...</div>
+        </div>
+    </div>
+
     <!-- VISTA 1: LOGIN -->
     <div id="view-login" class="view-container active-view">
         <div class="login-card">
@@ -104,15 +121,15 @@
                     <div class="sidebar-group">
                         <div class="sidebar-group-header">PANEL Y ANÁLISIS</div>
                         <div class="sidebar-group-body">
-                            <button id="coverageBtn" class="sidebar-btn">🔍 Analizar Cobertura</button>
-                            <button id="distributionBtn" class="sidebar-btn">🔢 Ver Conteo por Turno</button>
                             <button id="staffDistributionBtn" class="sidebar-btn">🧑‍🤝‍🧑 Dist. y Rotación</button>
                             <button id="krebsReportBtn" class="sidebar-btn">🔄 Análisis de Esfuerzo</button>
-                            <button id="tasksReportBtn" class="sidebar-btn">📌 Ejecución de Tareas</button>
-                            <button id="correctionBtn" class="sidebar-btn">⏱️ Corrección de Horas</button>
-                            <button id="seasonBtn" class="sidebar-btn">🍂 Aplicar Temporadas</button>
-                            <button id="massChangeBtn" class="sidebar-btn" style="display: none;">🔄 Cambio Masivo</button>
                             <button id="equidadBtn" class="sidebar-btn">⚖️ Análisis de Equidad</button>
+                            <button id="coverageBtn" class="sidebar-btn">🔍 Analizar Cobertura</button>
+                            <button id="seasonBtn" class="sidebar-btn">🍂 Aplicar Temporadas</button>
+                            <button id="correctionBtn" class="sidebar-btn">⏱️ Corrección de Horas</button>
+                            <button id="distributionBtn" class="sidebar-btn">🔢 Ver Conteo por Turno</button>
+                            <button id="tasksReportBtn" class="sidebar-btn">📌 Ejecución de Tareas</button>
+                            <button id="massChangeBtn" class="sidebar-btn" style="display: none;">🔄 Cambio Masivo</button>
                         </div>
                     </div>
 
