@@ -35,7 +35,8 @@ let appState = {
     rotationEffectiveDate: null,
     subgroups: [],
     leftoverAisles: [],
-    dailyTasks: {}          // key: `${workerId}_${date}` → task object
+    dailyTasks: {},          // key: `${workerExcelId}_${date}` → task object
+    taskNotes:  {}           // key: `${workerExcelId}_${date}` → string observación
 };
 
 // 5 tareas predeterminadas
@@ -63,7 +64,7 @@ let shiftOptionsHTML = '';
 const NUM_FIXED_COLUMNS = 3;
 
 // Mapas base
-const masterShiftList =[ '7A6-13', '8A6-14', '7A7-14', '8A7-15', '7A7.3-14.3', '8i7.3-16.3', '7i11-19', '8i11-20', '7C13.3-20.3', '8C13.3-21.3', '7C14.3-21.3', '8C14.3-22.3', '7C15-22', '8C14-22', '7N22-6', '8N22-7', 'COMP', 'LBRE', 'VC', 'LIC', 'INC', 'DF', 'CAP', '0SP' ].filter((v, i, a) => a.indexOf(v) === i);
+const masterShiftList =[ '7A6-13', '8A6-14', '7A7-14', '8A7-15', '7A7.3-14.3', '8i7.3-16.3', '7i11-19', '8i11-20', '7C13.3-20.3', '8C13.3-21.3', '7C14.3-21.3', '8C14.3-22.3', '7C15-22', '8C14-22', '7N22-6', '8N22-7', '8N21.3-6.3', '7I10-6', 'COMP', 'LBRE', 'VC', 'LIC', 'INC', 'DF', 'CAP', '0SP' ].filter((v, i, a) => a.indexOf(v) === i);
 const csvInputMap = { '1.1': '7A6-13', '2.2': '7C14.3-21.3', '3.3': 'LBRE', '4.4': '7N22-6', '5.5': 'COMP', '0': '0SP' };
 const shift7hTo8hMap = {};
 const shift8hTo7hMap = {};
@@ -231,6 +232,7 @@ function loadAppState() {
         appState.subgroups = data.state.subgroups || [];
         appState.leftoverAisles = data.state.leftoverAisles || [];
         appState.dailyTasks = data.state.dailyTasks || {};
+        appState.taskNotes  = data.state.taskNotes  || {};
         
         document.getElementById('sidebar-tools').style.display = 'block';
         document.getElementById('filterControls').style.display = 'flex';
@@ -249,16 +251,17 @@ async function syncTasksToSheets() {
     const url = getSheetsUrl();
     if (!url || !selectedStore) return;
     const sheetName = `TAREAS_${selectedStore}`;
-    const headers = ['TRABAJADOR_ID', 'NOMBRE', 'PASILLO', 'FECHA', 'TAREA_ID', 'TAREA_NOMBRE', 'TAREA_ICONO'];
+    const headers = ['TRABAJADOR_ID', 'NOMBRE', 'PASILLO', 'FECHA', 'TAREA_ID', 'TAREA_NOMBRE', 'TAREA_ICONO', 'OBSERVACION'];
     const rows = Object.entries(appState.dailyTasks).map(([key, task]) => {
-        const parts = key.split('_');
-        const workerId = parseInt(parts[0]);
-        const date = parts.slice(1).join('_');
-        const worker = appState.processedData.find(w => w.id === workerId);
-        const nombre  = worker ? worker.fixedData[0] : String(workerId);
+        const sepIdx = key.indexOf('_');
+        const workerExcelId = key.substring(0, sepIdx);
+        const date = key.substring(sepIdx + 1);
+        const worker = appState.processedData.find(w => String(w.workerExcelId) === String(workerExcelId));
+        const nombre  = worker ? worker.fixedData[0] : workerExcelId;
         const pasillo = worker ? (worker.fixedData[1] || '') : '';
-        return [workerId, nombre, pasillo, date, task.id, task.name, task.icon];
-    }).sort((a, b) => a[3].localeCompare(b[3])); // orden por fecha
+        const obs = appState.taskNotes[key] || '';
+        return [workerExcelId, nombre, pasillo, date, task.id, task.name, task.icon, obs];
+    }).sort((a, b) => a[3].localeCompare(b[3]));
     try {
         await fetch(url, {
             method: 'POST',
@@ -276,11 +279,18 @@ async function loadTasksFromSheets() {
         const resp = await fetch(`${url}?action=getData&sheet=${encodeURIComponent(sheetName)}`).then(r => r.json());
         if (!resp.success || !resp.data || resp.data.length < 3) return;
         appState.dailyTasks = {};
+        appState.taskNotes  = {};
+        // columnas: [0]TRABAJADOR_ID [1]NOMBRE [2]PASILLO [3]FECHA [4]TAREA_ID [5]TAREA_NOMBRE [6]TAREA_ICONO [7]OBSERVACION
         resp.data.slice(2).forEach(row => {
-            const [workerId, date, taskId] = row;
-            if (!workerId || !date || !taskId) return;
+            const workerExcelId = String(row[0] || '').trim();
+            const date   = String(row[3] || '').trim();
+            const taskId = row[4];
+            const obs    = String(row[7] || '').trim();
+            if (!workerExcelId || !date || !taskId) return;
             const task = PREDEFINED_TASKS.find(t => String(t.id) === String(taskId));
-            if (task) appState.dailyTasks[`${workerId}_${date}`] = task;
+            const key = `${workerExcelId}_${date}`;
+            if (task) appState.dailyTasks[key] = task;
+            if (obs)  appState.taskNotes[key]  = obs;
         });
     } catch(e) { /* silent — hoja aún no existe */ }
 }
@@ -290,37 +300,49 @@ function scheduleSyncTasks() {
     _taskSyncTimer = setTimeout(syncTasksToSheets, 2500);
 }
 
-function assignTask(workerId, dateStr, taskId) {
-    const key = `${workerId}_${dateStr}`;
+function assignTask(excelId, dateStr, taskId) {
+    const key = `${excelId}_${dateStr}`;
     if (taskId === null) {
         delete appState.dailyTasks[key];
     } else {
         const task = PREDEFINED_TASKS.find(t => t.id === taskId);
         if (task) appState.dailyTasks[key] = task;
     }
-    refreshTaskBadgeInDOM(workerId, dateStr);
+    refreshTaskBadgeInDOM(excelId, dateStr);
     scheduleSyncTasks();
 }
 
-function refreshTaskBadgeInDOM(workerId, dateStr) {
-    const td = document.querySelector(`td.shift-td[data-worker-id="${workerId}"][data-date-str="${dateStr}"]`);
+function saveTaskNote(excelId, dateStr, note) {
+    const key = `${excelId}_${dateStr}`;
+    if (note.trim()) {
+        appState.taskNotes[key] = note.trim();
+    } else {
+        delete appState.taskNotes[key];
+    }
+    scheduleSyncTasks();
+}
+
+function refreshTaskBadgeInDOM(excelId, dateStr) {
+    const td = document.querySelector(`td.shift-td[data-excel-id="${excelId}"][data-date-str="${dateStr}"]`);
     if (!td) return;
     td.querySelectorAll('.task-badge-cell, .task-add-btn').forEach(el => el.remove());
     const sel = td.querySelector('.shift-select');
     if (!sel) return;
     const shift = allShifts[sel.value];
     if (!shift || shift.hours <= 0) return;
-    const task = appState.dailyTasks[`${workerId}_${dateStr}`];
+    const key  = `${excelId}_${dateStr}`;
+    const task = appState.dailyTasks[key];
+    const hasNote = !!appState.taskNotes[key];
     const div = document.createElement('div');
     if (task) {
         div.className = 'task-badge-cell';
-        div.dataset.workerId = workerId;
+        div.dataset.excelId = excelId;
         div.dataset.dateStr = dateStr;
         div.style.cssText = `border-top:2px solid ${task.color}55;color:${task.color};background:${task.color}18;`;
-        div.innerHTML = `${task.icon} <span>${task.shortName}</span>`;
+        div.innerHTML = `${task.icon} <span>${task.shortName}</span>${hasNote ? ' <span style="font-size:0.8em;opacity:0.7;" title="Tiene observación">📝</span>' : ''}`;
     } else {
         div.className = 'task-add-btn';
-        div.dataset.workerId = workerId;
+        div.dataset.excelId = excelId;
         div.dataset.dateStr = dateStr;
         div.title = 'Asignar tarea';
         div.textContent = '+ tarea';
@@ -328,9 +350,11 @@ function refreshTaskBadgeInDOM(workerId, dateStr) {
     td.appendChild(div);
 }
 
-function openTaskPicker(workerId, dateStr, anchorEl) {
+function openTaskPicker(excelId, dateStr, anchorEl) {
     closeTaskPicker();
-    const task = appState.dailyTasks[`${workerId}_${dateStr}`];
+    const key  = `${excelId}_${dateStr}`;
+    const task = appState.dailyTasks[key];
+    const note = appState.taskNotes[key] || '';
     const popup = document.getElementById('taskPickerPopup');
     if (!popup) return;
 
@@ -343,15 +367,58 @@ function openTaskPicker(workerId, dateStr, anchorEl) {
                 <span class="task-picker-name">${t.name}</span>
                 ${task && task.id === t.id ? '<span class="task-picker-check">✓</span>' : ''}
             </button>`).join('')}
-        <button class="task-picker-clear" data-task-id="null">✕ Quitar tarea</button>`;
+        <button class="task-picker-clear" data-task-id="null">✕ Quitar tarea</button>
+        <div style="border-top:1px solid #eee;margin-top:6px;padding-top:6px;">
+            <div style="font-size:0.72em;color:#888;font-weight:700;letter-spacing:0.5px;margin-bottom:4px;text-transform:uppercase;">📝 Observación</div>
+            <textarea id="taskNoteInput" rows="2" placeholder="Escribe una observación..." style="width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:6px;font-size:0.85em;padding:5px 7px;resize:vertical;font-family:inherit;color:#333;">${note}</textarea>
+        </div>`;
 
-    popup.dataset.workerId = workerId;
+    popup.dataset.excelId = excelId;
     popup.dataset.dateStr = dateStr;
+
+    // Guardar observación al cambiar
+    setTimeout(() => {
+        const ta = document.getElementById('taskNoteInput');
+        if (ta) ta.addEventListener('input', () => saveTaskNote(excelId, dateStr, ta.value));
+    }, 0);
 
     const rect = anchorEl.getBoundingClientRect();
     popup.style.display = 'block';
     const pw = popup.offsetWidth || 220;
-    const ph = popup.offsetHeight || 260;
+    const ph = popup.offsetHeight || 300;
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    if (left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
+    if (top + ph > window.innerHeight - 8) top = rect.top - ph - 4;
+    popup.style.left = left + 'px';
+    popup.style.top  = top  + 'px';
+}
+
+function openTaskViewerRO(excelId, dateStr, anchorEl) {
+    const key  = `${excelId}_${dateStr}`;
+    const task = appState.dailyTasks[key];
+    const note = appState.taskNotes[key] || '';
+    if (!task) return;
+    const popup = document.getElementById('taskPickerPopup');
+    if (!popup) return;
+    popup.innerHTML = `
+        <div class="task-picker-header">📌 Tarea del día</div>
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 10px 6px;background:${task.color}10;border-radius:8px;margin-bottom:6px;">
+            <span style="font-size:1.8em;">${task.icon}</span>
+            <div>
+                <div style="font-weight:800;color:${task.color};font-size:0.95em;">${task.name}</div>
+            </div>
+        </div>
+        ${note ? `<div style="border-top:1px solid #eee;margin-top:6px;padding-top:6px;">
+            <div style="font-size:0.72em;color:#888;font-weight:700;letter-spacing:0.5px;margin-bottom:4px;text-transform:uppercase;">📝 Observación</div>
+            <div style="font-size:0.88em;color:#333;background:#f9f9f9;border-radius:6px;padding:6px 8px;line-height:1.5;">${note.replace(/\n/g,'<br>')}</div>
+        </div>` : '<div style="font-size:0.8em;color:#bbb;text-align:center;padding:4px 0;">Sin observación registrada</div>'}`;
+    popup.dataset.excelId = excelId;
+    popup.dataset.dateStr = dateStr;
+    const rect = anchorEl.getBoundingClientRect();
+    popup.style.display = 'block';
+    const pw = popup.offsetWidth || 220;
+    const ph = popup.offsetHeight || 180;
     let left = rect.left;
     let top = rect.bottom + 4;
     if (left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
@@ -527,7 +594,10 @@ function renderMonthFilters() {
         const isActive = selectedMonthsFilter.has(m);
         html += `<button class="btn-month${isActive ? ' active' : ''}" data-month="${m}">${label}</button>`;
     });
-    if (selectedMonthsFilter.size > 0) html += `<button class="btn-month-clear">✕ Todos los meses</button>`;
+    if (selectedMonthsFilter.size > 0) {
+        html += `<button class="btn-month-clear">✕ Todos los meses</button>`;
+        html += `<button class="btn-month-print" title="Imprimir programación del mes seleccionado en PDF">🖨️ Imprimir PDF</button>`;
+    }
     html += '</div>';
     bar.innerHTML = html;
 }
@@ -668,23 +738,29 @@ function renderScheduleTable(data, visibleDates) {
                 const showMoonWarning = cell.hours > 0 && cell.name.includes('N') && nextShift && !nextIsValid;
                 const tdClass = (fClass.trim() + (showMoonWarning ? ' cell-with-moon' : '') + (weekendClass ? ' ' + weekendClass : '')).trim();
                 const moonHTML = showMoonWarning ? '<span class="moon-warning" title="⚠️ Turno nocturno sin COMP u otro N al día siguiente">🌙</span>' : '';
+                const excelId  = rowData.workerExcelId || String(rowData.id);
+                const taskKey  = `${excelId}_${dateStr}`;
+                const assignedTask = appState.dailyTasks[taskKey];
+                const hasNote  = !!appState.taskNotes[taskKey];
                 let shiftCellContent;
                 if (readOnly) {
-                    shiftCellContent = `<span class="shift-ro-text">${cell.name !== 'N/A' ? cell.name : ''}</span>`;
+                    let taskBadgeHTML = '';
+                    if (cell.hours > 0 && assignedTask) {
+                        taskBadgeHTML = `<div class="task-badge-ro" data-excel-id="${excelId}" data-date-str="${dateStr}" title="${assignedTask.name}${hasNote ? ' — 📝 tiene observación' : ''}" style="border-top:2px solid ${assignedTask.color}55;color:${assignedTask.color};background:${assignedTask.color}18;display:flex;align-items:center;gap:3px;font-size:0.68em;font-weight:700;padding:2px 4px;margin-top:2px;border-radius:3px;cursor:pointer;">${assignedTask.icon} <span>${assignedTask.shortName}</span>${hasNote ? ' 📝' : ''}</div>`;
+                    }
+                    shiftCellContent = `<span class="shift-ro-text">${cell.name !== 'N/A' ? cell.name : ''}</span>${taskBadgeHTML}`;
                 } else {
-                    const taskKey = `${rowData.id}_${dateStr}`;
-                    const assignedTask = appState.dailyTasks[taskKey];
                     let taskHTML = '';
                     if (cell.hours > 0) {
                         if (assignedTask) {
-                            taskHTML = `<div class="task-badge-cell" data-worker-id="${rowData.id}" data-date-str="${dateStr}" style="border-top:2px solid ${assignedTask.color}55;color:${assignedTask.color};background:${assignedTask.color}18;">${assignedTask.icon} <span>${assignedTask.shortName}</span></div>`;
+                            taskHTML = `<div class="task-badge-cell" data-excel-id="${excelId}" data-date-str="${dateStr}" style="border-top:2px solid ${assignedTask.color}55;color:${assignedTask.color};background:${assignedTask.color}18;">${assignedTask.icon} <span>${assignedTask.shortName}</span>${hasNote ? ' <span style="font-size:0.8em;opacity:0.7;" title="Tiene observación">📝</span>' : ''}</div>`;
                         } else {
-                            taskHTML = `<div class="task-add-btn" data-worker-id="${rowData.id}" data-date-str="${dateStr}" title="Asignar tarea">+ tarea</div>`;
+                            taskHTML = `<div class="task-add-btn" data-excel-id="${excelId}" data-date-str="${dateStr}" title="Asignar tarea">+ tarea</div>`;
                         }
                     }
                     shiftCellContent = `<select class="shift-select" data-worker-id="${rowData.id}" data-date-str="${dateStr}">${shiftOptionsHTML.replace(`value="${cell.name}"`, `value="${cell.name}" selected`)}</select>${moonHTML}${taskHTML}`;
                 }
-                tableHTML += `<td class="shift-td ${tdClass}" data-worker-id="${rowData.id}" data-date-str="${dateStr}">${shiftCellContent}</td>`;
+                tableHTML += `<td class="shift-td ${tdClass}" data-worker-id="${rowData.id}" data-excel-id="${excelId}" data-date-str="${dateStr}">${shiftCellContent}</td>`;
             });
             const validHours =[0, 7, 14, 21, 28, 35, 42, 49]; const totalInt = Math.round(weeklyTotal); const isError = !validHours.includes(totalInt);
             tableHTML += `<td class="total-horas-cell ${isError ? 'hour-error-cell' : ''}">${weeklyTotal}${isError ? ' <span class="warning-icon">⚠️</span>' : ''}</td>`;
@@ -703,6 +779,162 @@ function renderScheduleTable(data, visibleDates) {
     } else {
         out.innerHTML = `<p style="text-align:center; color: #c62828;">No hay resultados.</p>`;
     }
+}
+
+function printSchedulePDF() {
+    if (selectedMonthsFilter.size === 0) {
+        showToast('Selecciona un mes en MESES RÁPIDOS antes de imprimir.', 'warning');
+        return;
+    }
+    const { dataToRender, visibleDates } = applyAllFilters();
+    if (visibleDates.length === 0 || dataToRender.length === 0) {
+        showToast('No hay datos para imprimir.', 'warning');
+        return;
+    }
+
+    const months = [...selectedMonthsFilter].sort();
+    const monthLabels = months.map(m => {
+        const [yr, mo] = m.split('-');
+        return `${MONTH_NAMES_ES[parseInt(mo) - 1].toUpperCase()} ${yr}`;
+    }).join(' / ');
+    const storeLabel = selectedStore || '';
+    const DOW_ABBR   = ['DOM','LUN','MAR','MIE','JUE','VIE','SAB'];
+    const MESES_ABBR = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    const fmtDate = d => { const [,m,day] = d.split('-'); return `${parseInt(day)} ${MESES_ABBR[parseInt(m)-1]}`; };
+
+    // Aisle difficulty colours (matches main app)
+    const DIFF_BG    = { 'Alto':'#ef9a9a', 'Medio':'#FFFF00', 'Bajo':'#a5d6a7', '':'#dce0e4' };
+    const DIFF_COLOR = { 'Alto':'#7f0000', 'Medio':'#333',    'Bajo':'#1b5e20', '':'#444'    };
+
+    const numRows = dataToRender.length;
+
+    // Cap row height at 6mm so cells never inflate when worker count is low.
+    // Proportions: shift 73% / task 27% (same as before).
+    const BASE_MM    = Math.min(6.0, 222 / numRows);
+    const SHIFT_H_MM = (BASE_MM * (162 / 222)).toFixed(4);
+    const TASK_H_MM  = (BASE_MM * (60  / 222)).toFixed(4);
+    const ROW_MM     = BASE_MM.toFixed(4);
+
+    // ── thead ────────────────────────────────────────────────────────
+    let thead = '<tr><th class="th-fixed th-name">TRABAJADOR / EQUIPO</th>';
+    visibleDates.forEach(dateStr => {
+        const dow = new Date(dateStr + 'T00:00:00').getDay();
+        const isHoliday = appState.holidays.has(dateStr);
+        let cls = 'th-date';
+        if (isHoliday) cls += ' hdr-holiday';
+        else if (dow === 6) cls += ' hdr-sat';
+        else if (dow === 0) cls += ' hdr-sun';
+        thead += `<th class="${cls}">${DOW_ABBR[dow]}<br>${fmtDate(dateStr)}</th>`;
+    });
+    thead += '</tr>';
+
+    // ── tbody ────────────────────────────────────────────────────────
+    let tbody = '';
+    dataToRender.forEach(rowData => {
+        const initialAisleDate = appState.dateHeaders[0] || null;
+        const aisle = (initialAisleDate && rowData.dailyData[initialAisleDate]?.aisle) || rowData.fixedData[1];
+        const diff  = appState.aisleDifficulties[aisle] || '';
+        const aBg   = DIFF_BG[diff]    || DIFF_BG[''];
+        const aClr  = DIFF_COLOR[diff] || DIFF_COLOR[''];
+
+        tbody += `<tr style="height:${ROW_MM}mm;">`;
+        // Name cell: worker name + aisle badge stacked
+        tbody += `<td class="td-fixed td-name"><div class="nw"><div class="wn">${rowData.fixedData[0]}</div><div class="ab" style="background:${aBg};color:${aClr};">${aisle}</div></div></td>`;
+
+        visibleDates.forEach(dateStr => {
+            const cell = rowData.dailyData[dateStr] || { name:'', hours:0, className:'' };
+            const isHoliday = appState.holidays.has(dateStr);
+            const dow = new Date(dateStr + 'T00:00:00').getDay();
+            const shiftName = cell.name && cell.name !== 'N/A' ? cell.name : '';
+            let tdClass = `td-shift ${cell.className || ''}`;
+            if (isHoliday && cell.name === 'COMP') tdClass += ' comp-on-holiday';
+            else if (isHoliday) tdClass += ' holiday-cell';
+            if (dow === 6) tdClass += ' sat-cell';
+            if (dow === 0) tdClass += ' sun-cell';
+            const excelId = rowData.workerExcelId || String(rowData.id);
+            const assignedTask = appState.dailyTasks[`${excelId}_${dateStr}`];
+            // Both .st and .tk always present — keeps rows uniform height
+            const taskInner = (cell.hours > 0 && assignedTask)
+                ? `<span style="color:${assignedTask.color};overflow:hidden;text-overflow:ellipsis;display:block;width:100%;">${assignedTask.icon}&nbsp;${assignedTask.shortName}</span>`
+                : '';
+            tbody += `<td class="${tdClass.trim()}"><div class="ci"><div class="st">${shiftName}</div><div class="tk">${taskInner}</div></div></td>`;
+        });
+        tbody += '</tr>';
+    });
+
+    const dynamicShiftStyles = document.getElementById('dynamic-styles')?.textContent || '';
+    const printedOn = new Date().toLocaleDateString('es-CO', { year:'numeric', month:'long', day:'numeric' });
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>KRONOMERCADO — ${storeLabel} ${monthLabels}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+@page{size:landscape;margin:3mm;}
+html,body{width:100%;background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+/* Page header */
+.ph{display:flex;justify-content:space-between;align-items:flex-end;height:5mm;padding-bottom:0.5mm;margin-bottom:1.5mm;border-bottom:1.5pt solid #1a237e;}
+.pt{font-size:9pt;font-weight:900;color:#1a237e;letter-spacing:.8px;line-height:1;}
+.pm{font-size:6.5pt;color:#555;font-weight:600;}
+.pd{font-size:4.5pt;color:#aaa;}
+/* Table */
+table{width:100%;border-collapse:collapse;table-layout:fixed;}
+thead tr{height:10mm;}
+th,td{border:.3pt solid #bbb;padding:0;overflow:hidden;}
+/* Fixed name column — no separate equipo column */
+.th-fixed,.td-fixed{background:#eceff1!important;font-weight:700;vertical-align:middle;}
+.th-name{width:22mm;min-width:22mm;max-width:22mm;text-align:left;padding:1px 2px;font-size:5pt;vertical-align:middle;}
+.td-name{width:22mm;min-width:22mm;max-width:22mm;vertical-align:middle;padding:1px 2px;}
+/* name-wrap: stacks worker name above aisle badge */
+.nw{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:0.8px;width:100%;height:100%;}
+.wn{font-size:3.1pt;font-weight:600;line-height:1.1;word-break:break-word;white-space:normal;width:100%;}
+.ab{font-size:1.9pt;font-weight:700;padding:0.8px 3px;border-radius:20pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:inline-block;line-height:1.5;}
+/* Date headers */
+.th-date{text-align:center;font-size:4pt;background:#1a237e!important;color:#fff!important;font-weight:700;line-height:1.2;padding:1px 0;vertical-align:middle;}
+.hdr-sat{background:#4a148c!important;}
+.hdr-sun{background:#b71c1c!important;}
+.hdr-holiday{background:#e65100!important;}
+/* Shift cells — position:relative so .ci can be absolute and fill 100% height */
+.td-shift{padding:0;position:relative;vertical-align:top;text-align:center;}
+/* .ci: explicit heights — shift area reduced 10%, task area unchanged */
+.ci{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;}
+.st{height:${SHIFT_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:3.6pt;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:clip;}
+.tk{height:${TASK_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:2.5pt;font-weight:600;white-space:nowrap;overflow:hidden;padding:0 1px;}
+/* Weekend / holiday tints */
+.sat-cell{background-color:rgba(74,20,140,.06)!important;}
+.sun-cell{background-color:rgba(183,28,28,.08)!important;}
+.holiday-cell{background-color:rgba(230,81,0,.10)!important;}
+.comp-on-holiday{background-color:rgba(230,81,0,.18)!important;}
+/* Dynamic shift colours from app */
+${dynamicShiftStyles}
+</style>
+</head>
+<body>
+<div class="ph">
+  <div><div class="pt">KRONOMERCADO &nbsp;·&nbsp; ${storeLabel}</div><div class="pm">Programación &nbsp;${monthLabels}</div></div>
+  <div class="pd">Impreso: ${printedOn}</div>
+</div>
+<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+<script>
+window.onload = function() {
+    /* Safety zoom: guarantees fit on A3 landscape (410 × 287 mm printable at 96 dpi).
+       When content already fits, scale stays ≥ 1 and zoom is not applied. */
+    var PX_MM = 96 / 25.4;
+    var body  = document.body;
+    var scale = Math.min((414 * PX_MM) / body.scrollWidth, (291 * PX_MM) / body.scrollHeight);
+    if (scale < 0.998) body.style.zoom = scale.toFixed(6);
+    setTimeout(function(){ window.print(); }, 700);
+};
+<\/script>
+</body></html>`;
+
+    const printWin = window.open('', '_blank', 'width=1400,height=900');
+    if (!printWin) { showToast('El navegador bloqueó la ventana emergente. Habilita ventanas emergentes para imprimir.', 'warning'); return; }
+    printWin.document.write(html);
+    printWin.document.close();
+    printWin.focus();
 }
 
 function renderSummaryTable(data, visibleDates) {
@@ -1781,14 +2013,15 @@ function renderTasksReport() {
 
     // Construir filas con datos completos
     const rows = entries.map(([key, task]) => {
-        const parts  = key.split('_');
-        const wId    = parseInt(parts[0]);
-        const date   = parts.slice(1).join('_');
-        const worker = appState.processedData.find(w => w.id === wId);
+        const sepIdx = key.indexOf('_');
+        const excelId = key.substring(0, sepIdx);
+        const date    = key.substring(sepIdx + 1);
+        const worker  = appState.processedData.find(w => String(w.workerExcelId) === String(excelId));
+        const obs     = appState.taskNotes[key] || '';
         return {
-            nombre:  worker ? worker.fixedData[0] : `ID ${wId}`,
+            nombre:  worker ? worker.fixedData[0] : excelId,
             pasillo: worker ? (worker.fixedData[1] || '—') : '—',
-            date, task
+            date, task, obs
         };
     }).sort((a, b) => a.date.localeCompare(b.date) || a.nombre.localeCompare(b.nombre));
 
@@ -1817,6 +2050,7 @@ function renderTasksReport() {
                     ${r.task.icon} ${r.task.name}
                 </span>
             </td>
+            <td style="color:#555;font-size:0.85em;max-width:200px;white-space:pre-wrap;line-height:1.4;">${r.obs ? `<span title="${r.obs.replace(/"/g,'&quot;')}">📝 ${r.obs}</span>` : '<span style="color:#bbb;">—</span>'}</td>
         </tr>`).join('');
 
     container.innerHTML = `
@@ -1835,7 +2069,7 @@ function renderTasksReport() {
         <div class="summary-container" style="margin-top:0;">
             <table class="summary-table" style="width:100%;">
                 <thead><tr>
-                    <th>Trabajador</th><th>Pasillo</th><th>Fecha</th><th>Tarea</th>
+                    <th>Trabajador</th><th>Pasillo</th><th>Fecha</th><th>Tarea</th><th>Observación</th>
                 </tr></thead>
                 <tbody>${tableRows}</tbody>
             </table>
@@ -1874,19 +2108,21 @@ function renderEquidadReport() {
         if (/^\d+A/.test(name)) return 'A';
         if (/^\d+C/.test(name)) return 'C';
         if (/^\d+N/.test(name)) return 'N';
+        if (/^\d+I/.test(name)) return 'I';
         if (name === 'VC')   return 'VC';
         if (name === 'LIC')  return 'LIC';
+        if (name === 'INC')  return 'INC';
         if (name === 'COMP') return 'COM';
         if (name === 'LBRE') return 'LBRE';
         return null;
     }
 
-    const categories = ['A', 'C', 'N', 'VC', 'LIC', 'COM', 'LBRE'];
+    const categories = ['A', 'C', 'N', 'I', 'VC', 'LIC', 'INC', 'COM', 'LBRE'];
 
     const workerStats = workers
         .filter(w => !w.isPlaceholder)
         .map(w => {
-            const counts = { A: 0, C: 0, N: 0, VC: 0, LIC: 0, COM: 0, LBRE: 0 };
+            const counts = { A: 0, C: 0, N: 0, I: 0, VC: 0, LIC: 0, INC: 0, COM: 0, LBRE: 0 };
             filteredDates.forEach(d => {
                 const shift = w.dailyData[d];
                 if (!shift) return;
@@ -1908,15 +2144,17 @@ function renderEquidadReport() {
             return 0;
         });
 
-    const totals = { A: 0, C: 0, N: 0, VC: 0, LIC: 0, COM: 0, LBRE: 0, total: 0 };
+    const totals = { A: 0, C: 0, N: 0, I: 0, VC: 0, LIC: 0, INC: 0, COM: 0, LBRE: 0, total: 0 };
     workerStats.forEach(w => { categories.forEach(c => { totals[c] += w[c]; }); totals.total += w.total; });
 
     const catConfig = [
         { key: 'A',    label: 'Apertura',      color: '#f57c00' },
         { key: 'C',    label: 'Cierre',         color: '#1565c0' },
         { key: 'N',    label: 'Noche',          color: '#1a237e' },
+        { key: 'I',    label: 'Intermedio',     color: '#00838f' },
         { key: 'VC',   label: 'Vacaciones',     color: '#d81b60' },
         { key: 'LIC',  label: 'Licencia',       color: '#558b2f' },
+        { key: 'INC',  label: 'Incapacidad',    color: '#c62828' },
         { key: 'COM',  label: 'Compensatorio',  color: '#4527a0' },
         { key: 'LBRE', label: 'Libre',          color: '#0277bd' },
     ];
@@ -1925,7 +2163,7 @@ function renderEquidadReport() {
     const gt = totals.total || 1; // grand total, evita división por cero
 
     const summaryCards = catConfig.map(c => {
-        const pct = totals.total > 0 ? (totals[c.key] / totals.total * 100).toFixed(1) : '0.0';
+        const pct = totals.total > 0 ? Math.round(totals[c.key] / totals.total * 100) : 0;
         return `<div style="background:${c.color}14;border:2px solid ${c.color}44;border-radius:10px;padding:10px 14px;text-align:center;min-width:80px;flex:1;">
             <div style="font-size:0.68em;color:#555;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px;">${c.label}</div>
             <div style="font-size:1.7em;font-weight:900;color:${c.color};line-height:1.1;">${totals[c.key]}</div>
@@ -1940,9 +2178,9 @@ function renderEquidadReport() {
 
     const selLabel = currentMonth ? (() => { const [yr, mo] = currentMonth.split('-'); return `${MONTH_NAMES_ES[parseInt(mo)-1]} ${yr}`; })() : 'Todos los meses';
 
-    const colColors = { A: '#f57c00', C: '#1565c0', N: '#1a237e', VC: '#d81b60', LIC: '#558b2f', COM: '#4527a0', LBRE: '#0277bd' };
+    const colColors = { A: '#f57c00', C: '#1565c0', N: '#1a237e', I: '#00838f', VC: '#d81b60', LIC: '#558b2f', INC: '#c62828', COM: '#4527a0', LBRE: '#0277bd' };
 
-    function pct(val, tot) { return tot > 0 ? (val / tot * 100).toFixed(1) + '%' : '0.0%'; }
+    function pct(val, tot) { return tot > 0 ? Math.round(val / tot * 100) + '%' : '0%'; }
 
     function sortTh(col, label, color, extraStyle = '') {
         const active = sortCol === col;
@@ -2001,8 +2239,10 @@ function renderEquidadReport() {
                     ${sortTh('A',    'A',    '#f57c00')}
                     ${sortTh('C',    'C',    '#1565c0')}
                     ${sortTh('N',    'N',    '#1a237e')}
+                    ${sortTh('I',    'I',    '#00838f')}
                     ${sortTh('VC',   'VC',   '#d81b60')}
                     ${sortTh('LIC',  'LIC',  '#558b2f')}
+                    ${sortTh('INC',  'INC',  '#c62828')}
                     ${sortTh('COM',  'COM',  '#4527a0')}
                     ${sortTh('LBRE', 'LBRE', '#0277bd')}
                     ${sortTh('pctA', '%A',   '#f57c00', 'background:#fff3e0;')}
@@ -2011,7 +2251,7 @@ function renderEquidadReport() {
                     ${sortTh('total','Total','#333')}
                 </tr>
                 <tr>
-                    <th colspan="7" style="text-align:center;font-size:0.72em;color:#888;font-weight:500;padding:2px 0;letter-spacing:0.3px;">Turnos trabajados</th>
+                    <th colspan="9" style="text-align:center;font-size:0.72em;color:#888;font-weight:500;padding:2px 0;letter-spacing:0.3px;">Turnos trabajados</th>
                     <th colspan="3" style="text-align:center;font-size:0.72em;color:#888;font-weight:500;padding:2px 0;letter-spacing:0.3px;">% sobre total propio</th>
                     <th></th>
                 </tr>
@@ -2646,10 +2886,13 @@ async function extendScheduleFromSheets() {
 async function autoLoadFromProgSheet() {
     const url = getSheetsUrl();
     if (!url) {
+        hideSplash();
         if (currentRole === 'admin' && localStorage.getItem(getStateKey())) document.getElementById('restoreSessionBtn').style.display = 'block';
         return;
     }
 
+    const _splashSt = document.getElementById('splashStatus');
+    if (_splashSt) _splashSt.textContent = 'Sincronizando programación...';
     updateSheetsSyncStatus('⏳ Buscando programación en Base de Datos...', '#1565c0');
 
     const progName   = 'PROG_' + (selectedStore || '');
@@ -2664,6 +2907,7 @@ async function autoLoadFromProgSheet() {
 
         // Sin datos en PROG → usar localStorage como fallback
         if (!progResp.success || !progResp.data || progResp.data.length < 3) {
+            hideSplash();
             updateSheetsSyncStatus(progResp.success ? '' : '⚠️ Sin datos en Base de Datos', '#e65100');
             if (currentRole === 'admin' && localStorage.getItem(getStateKey())) document.getElementById('restoreSessionBtn').style.display = 'block';
             return;
@@ -2675,6 +2919,7 @@ async function autoLoadFromProgSheet() {
         const dateHeaders = headerRow.slice(PROG_FIXED).filter(h => /^\d{4}-\d{2}-\d{2}$/.test(h));
 
         if (!dateHeaders.length) {
+            hideSplash();
             updateSheetsSyncStatus('', '');
             if (currentRole === 'admin' && localStorage.getItem(getStateKey())) document.getElementById('restoreSessionBtn').style.display = 'block';
             return;
@@ -2755,6 +3000,7 @@ async function autoLoadFromProgSheet() {
         }
 
         if (!processedData.length) {
+            hideSplash();
             updateSheetsSyncStatus('⚠️ PROG sin trabajadores válidos', '#e65100');
             if (currentRole === 'admin' && localStorage.getItem(getStateKey())) document.getElementById('restoreSessionBtn').style.display = 'block';
             return;
@@ -2762,7 +3008,10 @@ async function autoLoadFromProgSheet() {
 
         appState.processedData = processedData;
         applyLegalHours();
+        const _splashSt2 = document.getElementById('splashStatus');
+        if (_splashSt2) _splashSt2.textContent = 'Construyendo programación...';
         await loadDistributionFromSheets(); // restaurar aisles por día y estado de rotación
+        await loadTasksFromSheets();        // restaurar tareas e historial de observaciones
         populateFilters(); renderAll(); computeAndShowMetrics();
         if (currentRole === 'admin') saveAppState();
 
@@ -2778,8 +3027,10 @@ async function autoLoadFromProgSheet() {
         showToast(`✅ ${processedData.length} trabajadores cargados desde Sheets`, 'success');
         updateProgInfoBar();
         updateSheetsSyncStatus(`🗄️ Base de Datos: restaurado ${new Date().toLocaleTimeString('es-CO')}`, '#2e7d32');
+        hideSplash();
 
     } catch (err) {
+        hideSplash();
         updateSheetsSyncStatus('⚠️ Error al conectar con Base de Datos', '#e65100');
         if (currentRole === 'admin' && localStorage.getItem(getStateKey())) document.getElementById('restoreSessionBtn').style.display = 'block';
     }
@@ -2960,7 +3211,25 @@ async function loadDistributionFromSheets() {
 window.addEventListener('beforeunload', () => { if(appState.processedData.length > 0) saveAppState(); });
 
 // == INICIALIZACIÓN ==
+// ── Splash screen helpers ──────────────────────────────────
+function showSplash(msg) {
+    const el = document.getElementById('splashScreen');
+    if (!el) return;
+    el.classList.remove('splash-out');
+    el.style.display = 'flex';
+    if (msg) { const st = document.getElementById('splashStatus'); if (st) st.textContent = msg; }
+}
+function hideSplash() {
+    const el = document.getElementById('splashScreen');
+    if (!el || el.style.display === 'none') return;
+    el.classList.add('splash-out');
+    setTimeout(() => { el.style.display = 'none'; el.classList.remove('splash-out'); }, 680);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    // Ocultar splash intro después de 3 s
+    setTimeout(hideSplash, 3000);
+
     // Accordion del sidebar
     document.querySelectorAll('.sidebar-group-header').forEach(header => {
         header.addEventListener('click', () => {
@@ -3073,7 +3342,8 @@ document.addEventListener('DOMContentLoaded', () => {
             applyVerMiMallaMode();
         }
 
-        // Cargar desde Google Sheets PROG o mostrar botón de sesión local
+        // Mostrar splash de carga y sincronizar con Base de Datos
+        showSplash('Conectando con Base de Datos...');
         autoLoadFromProgSheet();
     };
 
@@ -3476,6 +3746,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderAll();
                 return;
             }
+            if (e.target.classList.contains('btn-month-print')) {
+                printSchedulePDF();
+                return;
+            }
             const btn = e.target.closest('.btn-month');
             if (btn && btn.dataset.month) {
                 const m = btn.dataset.month;
@@ -3494,10 +3768,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // == TAREAS DIARIAS — event handlers ==
     // Abrir picker al hacer clic en el badge o en el botón "+ tarea"
     document.getElementById('outputContainer').addEventListener('click', e => {
+        const roBtn = e.target.closest('.task-badge-ro');
+        if (roBtn) { e.stopPropagation(); openTaskViewerRO(roBtn.dataset.excelId, roBtn.dataset.dateStr, roBtn); return; }
         const btn = e.target.closest('.task-badge-cell, .task-add-btn');
         if (!btn) return;
         e.stopPropagation();
-        openTaskPicker(btn.dataset.workerId, btn.dataset.dateStr, btn);
+        openTaskPicker(btn.dataset.excelId, btn.dataset.dateStr, btn);
     });
 
     // Seleccionar tarea desde el picker
@@ -3505,16 +3781,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const item = e.target.closest('[data-task-id]');
         if (!item) return;
         const popup = document.getElementById('taskPickerPopup');
-        const wId   = popup.dataset.workerId;
+        const exId  = popup.dataset.excelId;
         const dStr  = popup.dataset.dateStr;
         const tId   = item.dataset.taskId === 'null' ? null : parseInt(item.dataset.taskId);
-        assignTask(wId, dStr, tId);
+        assignTask(exId, dStr, tId);
         closeTaskPicker();
     });
 
     // Cerrar picker al hacer clic fuera
     document.addEventListener('click', e => {
-        if (!e.target.closest('#taskPickerPopup') && !e.target.closest('.task-badge-cell') && !e.target.closest('.task-add-btn')) {
+        if (!e.target.closest('#taskPickerPopup') && !e.target.closest('.task-badge-cell') && !e.target.closest('.task-add-btn') && !e.target.closest('.task-badge-ro')) {
             closeTaskPicker();
         }
     });
