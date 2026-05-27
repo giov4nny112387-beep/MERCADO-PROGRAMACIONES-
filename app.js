@@ -36,17 +36,21 @@ let appState = {
     subgroups: [],
     leftoverAisles: [],
     dailyTasks: {},          // key: `${workerExcelId}_${date}` → task object
-    taskNotes:  {}           // key: `${workerExcelId}_${date}` → string observación
+    taskNotes:  {},          // key: `${workerExcelId}_${date}` → string observación
+    taskCustomNames: {}      // key: `${workerExcelId}_${date}` → custom name for isEditable tasks
 };
 
 // 5 tareas predeterminadas
 const PREDEFINED_TASKS = [
-    { id: 1, name: 'Recuperación de huevos',          shortName: 'Huevos',     icon: '🥚', color: '#f57c00' },
-    { id: 2, name: 'Marcación de precios',             shortName: 'Marcación',  icon: '🏷️', color: '#1565c0' },
-    { id: 3, name: 'Aseo de área',                    shortName: 'Aseo',       icon: '🧹', color: '#2e7d32' },
-    { id: 4, name: 'Inventario',                      shortName: 'Inventario', icon: '📋', color: '#6a1b9a' },
-    { id: 5, name: 'Apoyo en caja',                   shortName: 'Caja',       icon: '🚀', color: '#c62828' },
-    { id: 6, name: 'Reporte de fechas de vencimiento',shortName: 'Vencimiento',icon: '📅', color: '#00838f' },
+    { id: 1, name: 'Recuperación de huevos', shortName: 'Huevos',        icon: '🥚', color: '#2e7d32', fg: '#ffffff' },
+    { id: 2, name: 'Remarque',               shortName: 'Remarque',      icon: '🏷️', color: '#212121', fg: '#ffffff' },
+    { id: 3, name: 'Aseo',                   shortName: 'Aseo',          icon: '🧹', color: '#f9a825', fg: '#000000' },
+    { id: 4, name: 'Inventario',             shortName: 'Inventario',    icon: '📋', color: '#1565c0', fg: '#ffffff' },
+    { id: 5, name: 'Cajas',                  shortName: 'Cajas',         icon: '🚀', color: '#7b1fa2', fg: '#ffffff' },
+    { id: 6, name: 'Reporte Fechas',         shortName: 'Rpt. Fechas',   icon: '📅', color: '#c62828', fg: '#ffffff' },
+    { id: 7, name: 'Cursos',                 shortName: 'Cursos',        icon: '📚', color: '#f57c00', fg: '#ffffff' },
+    { id: 8, name: 'Exámenes Médicos',       shortName: 'Exám. Méd.',    icon: '🏥', color: '#ffffff', fg: '#c62828' },
+    { id: 9, name: 'Personalizada',          shortName: 'Personalizada', icon: '✏️', color: '#00bcd4', fg: '#ffffff', isEditable: true },
 ];
 let _taskSyncTimer = null;
 let specialShiftFilter = null;
@@ -231,8 +235,9 @@ function loadAppState() {
         appState.rotationEffectiveDate = data.state.rotationEffectiveDate || null;
         appState.subgroups = data.state.subgroups || [];
         appState.leftoverAisles = data.state.leftoverAisles || [];
-        appState.dailyTasks = data.state.dailyTasks || {};
-        appState.taskNotes  = data.state.taskNotes  || {};
+        appState.dailyTasks      = data.state.dailyTasks      || {};
+        appState.taskNotes       = data.state.taskNotes       || {};
+        appState.taskCustomNames = data.state.taskCustomNames || {};
         
         document.getElementById('sidebar-tools').style.display = 'block';
         document.getElementById('filterControls').style.display = 'flex';
@@ -322,6 +327,17 @@ function saveTaskNote(excelId, dateStr, note) {
     scheduleSyncTasks();
 }
 
+function taskBadgeStyle(task) {
+    const bg  = task.color;
+    const fg  = task.fg || '#ffffff';
+    const border = bg === '#ffffff' ? 'border:1px solid #f0d0d0;' : '';
+    return `background:${bg};color:${fg};${border}`;
+}
+function taskDisplayName(task, key) {
+    if (task.isEditable && appState.taskCustomNames?.[key]) return appState.taskCustomNames[key];
+    return task.shortName;
+}
+
 function refreshTaskBadgeInDOM(excelId, dateStr) {
     const td = document.querySelector(`td.shift-td[data-excel-id="${excelId}"][data-date-str="${dateStr}"]`);
     if (!td) return;
@@ -338,8 +354,8 @@ function refreshTaskBadgeInDOM(excelId, dateStr) {
         div.className = 'task-badge-cell';
         div.dataset.excelId = excelId;
         div.dataset.dateStr = dateStr;
-        div.style.cssText = `border-top:2px solid ${task.color}55;color:${task.color};background:${task.color}18;`;
-        div.innerHTML = `${task.icon} <span>${task.shortName}</span>${hasNote ? ' <span style="font-size:0.8em;opacity:0.7;" title="Tiene observación">📝</span>' : ''}`;
+        div.style.cssText = taskBadgeStyle(task);
+        div.innerHTML = `${task.icon} <span>${taskDisplayName(task, key)}</span>${hasNote ? ' <span style="font-size:0.8em;opacity:0.7;" title="Tiene observación">📝</span>' : ''}`;
     } else {
         div.className = 'task-add-btn';
         div.dataset.excelId = excelId;
@@ -358,16 +374,22 @@ function openTaskPicker(excelId, dateStr, anchorEl) {
     const popup = document.getElementById('taskPickerPopup');
     if (!popup) return;
 
+    const customName = appState.taskCustomNames?.[key] || '';
     popup.innerHTML = `
         <div class="task-picker-header">📌 Asignar tarea</div>
-        ${PREDEFINED_TASKS.map(t => `
-            <button class="task-picker-item ${task && task.id === t.id ? 'task-picker-active' : ''}"
-                data-task-id="${t.id}" style="--tc:${t.color};">
-                <span class="task-picker-icon">${t.icon}</span>
-                <span class="task-picker-name">${t.name}</span>
-                ${task && task.id === t.id ? '<span class="task-picker-check">✓</span>' : ''}
-            </button>`).join('')}
+        ${PREDEFINED_TASKS.map(t => {
+            const bStyle = taskBadgeStyle(t);
+            const isActive = task && task.id === t.id;
+            return `<button class="task-picker-item ${isActive ? 'task-picker-active' : ''}" data-task-id="${t.id}">
+                <span class="task-picker-swatch" style="${bStyle};display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:4px;font-size:0.82em;font-weight:700;">${t.icon} ${t.name}</span>
+                ${isActive ? '<span class="task-picker-check" style="margin-left:auto;">✓</span>' : ''}
+            </button>`;
+        }).join('')}
         <button class="task-picker-clear" data-task-id="null">✕ Quitar tarea</button>
+        <div id="taskCustomNameWrap" style="display:${task && task.isEditable ? 'block' : 'none'};border-top:1px solid #eee;margin-top:6px;padding-top:6px;">
+            <div style="font-size:0.72em;color:#00bcd4;font-weight:700;letter-spacing:0.5px;margin-bottom:4px;text-transform:uppercase;">✏️ Nombre personalizado</div>
+            <input id="taskCustomNameInput" type="text" maxlength="30" placeholder="Escribe el nombre de la tarea..." value="${customName}" style="width:100%;box-sizing:border-box;border:1px solid #00bcd4;border-radius:6px;font-size:0.85em;padding:5px 7px;font-family:inherit;color:#333;outline:none;">
+        </div>
         <div style="border-top:1px solid #eee;margin-top:6px;padding-top:6px;">
             <div style="font-size:0.72em;color:#888;font-weight:700;letter-spacing:0.5px;margin-bottom:4px;text-transform:uppercase;">📝 Observación</div>
             <textarea id="taskNoteInput" rows="2" placeholder="Escribe una observación..." style="width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:6px;font-size:0.85em;padding:5px 7px;resize:vertical;font-family:inherit;color:#333;">${note}</textarea>
@@ -376,10 +398,18 @@ function openTaskPicker(excelId, dateStr, anchorEl) {
     popup.dataset.excelId = excelId;
     popup.dataset.dateStr = dateStr;
 
-    // Guardar observación al cambiar
+    // Guardar observación y nombre personalizado al cambiar
     setTimeout(() => {
         const ta = document.getElementById('taskNoteInput');
         if (ta) ta.addEventListener('input', () => saveTaskNote(excelId, dateStr, ta.value));
+        const cn = document.getElementById('taskCustomNameInput');
+        if (cn) cn.addEventListener('input', () => {
+            if (!appState.taskCustomNames) appState.taskCustomNames = {};
+            if (cn.value.trim()) appState.taskCustomNames[key] = cn.value.trim();
+            else delete appState.taskCustomNames[key];
+            refreshTaskBadgeInDOM(excelId, dateStr);
+            saveAppState();
+        });
     }, 0);
 
     const rect = anchorEl.getBoundingClientRect();
@@ -403,11 +433,9 @@ function openTaskViewerRO(excelId, dateStr, anchorEl) {
     if (!popup) return;
     popup.innerHTML = `
         <div class="task-picker-header">📌 Tarea del día</div>
-        <div style="display:flex;align-items:center;gap:8px;padding:10px 10px 6px;background:${task.color}10;border-radius:8px;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 10px 6px;${taskBadgeStyle(task)};border-radius:8px;margin-bottom:6px;">
             <span style="font-size:1.8em;">${task.icon}</span>
-            <div>
-                <div style="font-weight:800;color:${task.color};font-size:0.95em;">${task.name}</div>
-            </div>
+            <div style="font-weight:800;font-size:0.95em;">${taskDisplayName(task, key)}</div>
         </div>
         ${note ? `<div style="border-top:1px solid #eee;margin-top:6px;padding-top:6px;">
             <div style="font-size:0.72em;color:#888;font-weight:700;letter-spacing:0.5px;margin-bottom:4px;text-transform:uppercase;">📝 Observación</div>
@@ -746,14 +774,14 @@ function renderScheduleTable(data, visibleDates) {
                 if (readOnly) {
                     let taskBadgeHTML = '';
                     if (cell.hours > 0 && assignedTask) {
-                        taskBadgeHTML = `<div class="task-badge-ro" data-excel-id="${excelId}" data-date-str="${dateStr}" title="${assignedTask.name}${hasNote ? ' — 📝 tiene observación' : ''}" style="border-top:2px solid ${assignedTask.color}55;color:${assignedTask.color};background:${assignedTask.color}18;display:flex;align-items:center;gap:3px;font-size:0.68em;font-weight:700;padding:2px 4px;margin-top:2px;border-radius:3px;cursor:pointer;">${assignedTask.icon} <span>${assignedTask.shortName}</span>${hasNote ? ' 📝' : ''}</div>`;
+                        taskBadgeHTML = `<div class="task-badge-ro" data-excel-id="${excelId}" data-date-str="${dateStr}" title="${assignedTask.name}${hasNote ? ' — 📝 tiene observación' : ''}" style="${taskBadgeStyle(assignedTask)};display:flex;align-items:center;gap:3px;font-size:0.68em;font-weight:700;padding:2px 4px;margin-top:2px;border-radius:3px;cursor:pointer;">${assignedTask.icon} <span>${taskDisplayName(assignedTask, taskKey)}</span>${hasNote ? ' 📝' : ''}</div>`;
                     }
                     shiftCellContent = `<span class="shift-ro-text">${cell.name !== 'N/A' ? cell.name : ''}</span>${taskBadgeHTML}`;
                 } else {
                     let taskHTML = '';
                     if (cell.hours > 0) {
                         if (assignedTask) {
-                            taskHTML = `<div class="task-badge-cell" data-excel-id="${excelId}" data-date-str="${dateStr}" style="border-top:2px solid ${assignedTask.color}55;color:${assignedTask.color};background:${assignedTask.color}18;">${assignedTask.icon} <span>${assignedTask.shortName}</span>${hasNote ? ' <span style="font-size:0.8em;opacity:0.7;" title="Tiene observación">📝</span>' : ''}</div>`;
+                            taskHTML = `<div class="task-badge-cell" data-excel-id="${excelId}" data-date-str="${dateStr}" style="${taskBadgeStyle(assignedTask)}">${assignedTask.icon} <span>${taskDisplayName(assignedTask, taskKey)}</span>${hasNote ? ' <span style="font-size:0.8em;opacity:0.7;" title="Tiene observación">📝</span>' : ''}</div>`;
                         } else {
                             taskHTML = `<div class="task-add-btn" data-excel-id="${excelId}" data-date-str="${dateStr}" title="Asignar tarea">+ tarea</div>`;
                         }
@@ -828,6 +856,28 @@ function printSchedulePDF() {
     });
     thead += '</tr>';
 
+    // ── shift color helper (print only) ─────────────────────────────
+    function getPrintShiftStyle(name, special) {
+        if (!name) return { bg: 'background:#ffffff', fg: 'color:#111' };
+        if (name === 'COMP')  return { bg: 'background:#ffffff', fg: 'color:#2e7d32;font-weight:700' };
+        if (name === 'LBRE')  return { bg: 'background:#ffffff', fg: 'color:#c62828;font-weight:700' };
+        if (name === 'VC')    return { bg: 'background:#e91e63', fg: 'color:#ffffff;font-weight:700' };
+        if (/^(INC|LIC)/.test(name)) return { bg: 'background:#f0f4c3', fg: 'color:#33691e' };
+        if (/^\d+A/.test(name)) return special
+            ? { bg: 'background:#ffb74d', fg: 'color:#111' }
+            : { bg: 'background:#ffe0b2', fg: 'color:#111' };
+        if (/^\d+C/.test(name)) return special
+            ? { bg: 'background:#e0e0e0', fg: 'color:#111' }
+            : { bg: 'background:#f5f5f5', fg: 'color:#111' };
+        if (/^\d+N/.test(name)) return special
+            ? { bg: 'background:#64b5f6', fg: 'color:#111' }
+            : { bg: 'background:#bbdefb', fg: 'color:#111' };
+        if (/^\d+I/.test(name)) return special
+            ? { bg: 'background:#e0e0e0', fg: 'color:#111' }
+            : { bg: 'background:#f5f5f5', fg: 'color:#111' };
+        return { bg: 'background:#f0f4c3', fg: 'color:#33691e' };
+    }
+
     // ── tbody ────────────────────────────────────────────────────────
     let tbody = '';
     dataToRender.forEach(rowData => {
@@ -846,18 +896,14 @@ function printSchedulePDF() {
             const isHoliday = appState.holidays.has(dateStr);
             const dow = new Date(dateStr + 'T00:00:00').getDay();
             const shiftName = cell.name && cell.name !== 'N/A' ? cell.name : '';
-            let tdClass = `td-shift ${cell.className || ''}`;
-            if (isHoliday && cell.name === 'COMP') tdClass += ' comp-on-holiday';
-            else if (isHoliday) tdClass += ' holiday-cell';
-            if (dow === 6) tdClass += ' sat-cell';
-            if (dow === 0) tdClass += ' sun-cell';
+            const isSpecialDay = isHoliday || dow === 6 || dow === 0;
             const excelId = rowData.workerExcelId || String(rowData.id);
             const assignedTask = appState.dailyTasks[`${excelId}_${dateStr}`];
-            // Both .st and .tk always present — keeps rows uniform height
+            const shiftStyle = getPrintShiftStyle(shiftName, isSpecialDay);
             const taskInner = (cell.hours > 0 && assignedTask)
-                ? `<span style="color:${assignedTask.color};overflow:hidden;text-overflow:ellipsis;display:block;width:100%;">${assignedTask.icon}&nbsp;${assignedTask.shortName}</span>`
+                ? `<span style="${taskBadgeStyle(assignedTask)};overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;height:100%;width:100%;font-weight:700;">${assignedTask.icon}&nbsp;${taskDisplayName(assignedTask, `${excelId}_${dateStr}`)}</span>`
                 : '';
-            tbody += `<td class="${tdClass.trim()}"><div class="ci"><div class="st">${shiftName}</div><div class="tk">${taskInner}</div></div></td>`;
+            tbody += `<td class="td-shift"><div class="ci"><div class="st" style="${shiftStyle.bg};${shiftStyle.fg}">${shiftName}</div><div class="tk">${taskInner}</div></div></td>`;
         });
         tbody += '</tr>';
     });
@@ -902,11 +948,6 @@ th,td{border:.3pt solid #bbb;padding:0;overflow:hidden;}
 .ci{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;}
 .st{height:${SHIFT_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:3.6pt;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:clip;}
 .tk{height:${TASK_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:2.5pt;font-weight:600;white-space:nowrap;overflow:hidden;padding:0 1px;}
-/* Weekend / holiday tints */
-.sat-cell{background-color:rgba(74,20,140,.06)!important;}
-.sun-cell{background-color:rgba(183,28,28,.08)!important;}
-.holiday-cell{background-color:rgba(230,81,0,.10)!important;}
-.comp-on-holiday{background-color:rgba(230,81,0,.18)!important;}
 /* Dynamic shift colours from app */
 ${dynamicShiftStyles}
 </style>
@@ -2046,7 +2087,7 @@ function renderTasksReport() {
             <td><span style="background:#e8eaf6;color:#3949ab;padding:2px 8px;border-radius:5px;font-size:0.82em;font-weight:700;">${r.pasillo}</span></td>
             <td style="color:#555;white-space:nowrap;">${fmtDate(r.date)}</td>
             <td>
-                <span style="background:${r.task.color}18;color:${r.task.color};border:1px solid ${r.task.color}55;padding:3px 10px;border-radius:6px;font-size:0.82em;font-weight:700;white-space:nowrap;">
+                <span style="${taskBadgeStyle(r.task)};padding:3px 10px;border-radius:6px;font-size:0.82em;font-weight:700;white-space:nowrap;">
                     ${r.task.icon} ${r.task.name}
                 </span>
             </td>
@@ -3785,6 +3826,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const dStr  = popup.dataset.dateStr;
         const tId   = item.dataset.taskId === 'null' ? null : parseInt(item.dataset.taskId);
         assignTask(exId, dStr, tId);
+        // Show custom name field if personalizada selected; keep picker open for name input
+        const wrap = document.getElementById('taskCustomNameWrap');
+        const task = PREDEFINED_TASKS.find(t => t.id === tId);
+        if (wrap) wrap.style.display = (task && task.isEditable) ? 'block' : 'none';
+        if (task && task.isEditable) { const cn = document.getElementById('taskCustomNameInput'); if (cn) { cn.focus(); return; } }
         closeTaskPicker();
     });
 
