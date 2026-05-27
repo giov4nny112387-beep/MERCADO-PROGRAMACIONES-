@@ -569,11 +569,12 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 .task-badge-cell {
     display: flex; align-items: center; gap: 3px;
     font-size: 0.68em; font-weight: 700; cursor: pointer;
-    padding: 2px 4px; margin-top: 2px; border-radius: 3px;
+    padding: 3px 5px; margin-top: 2px; border-radius: 4px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     transition: opacity 0.15s;
+    /* background and color set inline per task */
 }
-.task-badge-cell:hover { opacity: 0.75; }
+.task-badge-cell:hover { opacity: 0.82; }
 .task-badge-cell span { overflow: hidden; text-overflow: ellipsis; }
 
 /* Picker popup */
