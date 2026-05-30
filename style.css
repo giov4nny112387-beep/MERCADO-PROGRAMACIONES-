@@ -348,6 +348,10 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 .summary-table .holiday-cell { color: #c62828 !important; font-weight: bold; }
 .comp-on-holiday, .comp-on-holiday .shift-select { background-color: #000000 !important; color: #ffffff !important; font-weight: bold; }
 
+/* Advertencia: trabajó domingo sin COMP en la semana siguiente */
+.comp-missing-cell { box-shadow: inset 0 0 0 9999px rgba(230,81,0,0.09) !important; outline: 1.5px dashed #e65100; outline-offset: -2px; }
+.comp-warn-icon { color: #e65100 !important; animation: pulse-warning 1.2s infinite; }
+
 /* Sábados y Domingos */
 .sat-header { background-color: #1e3a6e !important; border-bottom: 3px solid #5c8ad4 !important; }
 .sun-header { background-color: #3b1f6e !important; border-bottom: 3px solid #9575cd !important; }
