@@ -49,7 +49,7 @@ const PREDEFINED_TASKS = [
     { id: 5, name: 'Cajas',                  shortName: 'Cajas',         icon: '🚀', color: '#7b1fa2', fg: '#ffffff' },
     { id: 6, name: 'Reporte Fechas',         shortName: 'Rpt. Fechas',   icon: '📅', color: '#c62828', fg: '#ffffff' },
     { id: 7, name: 'Cursos',                 shortName: 'Cursos',        icon: '📚', color: '#f57c00', fg: '#ffffff' },
-    { id: 8, name: 'Exámenes Médicos',       shortName: 'Exám. Méd.',    icon: '🏥', color: '#ffffff', fg: '#c62828' },
+    { id: 8, name: 'Exámenes Médicos',       shortName: 'Exám. Méd.',    icon: '🏥', color: '#7c3aed', fg: '#ffffff' },
     { id: 9, name: 'Personalizada',          shortName: 'Personalizada', icon: '✏️', color: '#00bcd4', fg: '#ffffff', isEditable: true },
 ];
 let _taskSyncTimer = null;
@@ -743,6 +743,25 @@ function renderScheduleTable(data, visibleDates) {
     appState.fixedHeaders.forEach(h => tableHTML += `<th>${h}</th>`);
     visibleWeeks.forEach((weekDates) => { weekDates.forEach(dateStr => { const isHoliday = appState.holidays.has(dateStr); const dow = new Date(dateStr + 'T00:00:00').getDay(); const thClass = isHoliday ? 'holiday-header' : (dow === 6 ? 'sat-header' : (dow === 0 ? 'sun-header' : '')); tableHTML += `<th class="${thClass}" data-date="${dateStr}">${dayAbbreviations[dow].toUpperCase()}<br>${dateStr.substring(5)}</th>`; }); tableHTML += `<th class="total-horas-header">Total Horas</th>`; });
     tableHTML += '</tr></thead><tbody>';
+    // ── COMP-after-Sunday rule: build violation map ───────────────────────────
+    // If a worker has a working shift (^\d+[ACIN]) on Sunday, the following
+    // calendar week must contain at least one COMP. Mark violating week cells.
+    const compViolationCells = new Map(); // workerId → Set<dateStr>
+    data.forEach(rowData => {
+        const violating = new Set();
+        appState.dateHeaders.forEach(dateStr => {
+            if (new Date(dateStr + 'T00:00:00').getDay() !== 0) return;
+            const c = rowData.dailyData[dateStr];
+            if (!c || !/^\d+[ACIN]/.test(c.name || '')) return;
+            const idx = appState.dateHeaders.indexOf(dateStr);
+            const nextWeek = appState.dateHeaders.slice(idx + 1, idx + 8);
+            if (!nextWeek.length) return;
+            const hasComp = nextWeek.some(d => (rowData.dailyData[d]?.name || '') === 'COMP');
+            if (!hasComp) nextWeek.forEach(d => violating.add(d));
+        });
+        if (violating.size > 0) compViolationCells.set(rowData.id, violating);
+    });
+
     const initialAisleDate = appState.dateHeaders[0] || null;
     data.forEach((rowData) => {
         const initialAisle = (initialAisleDate && rowData.dailyData[initialAisleDate]?.aisle) || rowData.fixedData[1];
@@ -788,10 +807,13 @@ function renderScheduleTable(data, visibleDates) {
                     }
                     shiftCellContent = `<select class="shift-select" data-worker-id="${rowData.id}" data-date-str="${dateStr}">${shiftOptionsHTML.replace(`value="${cell.name}"`, `value="${cell.name}" selected`)}</select>${moonHTML}${taskHTML}`;
                 }
-                tableHTML += `<td class="shift-td ${tdClass}" data-worker-id="${rowData.id}" data-excel-id="${excelId}" data-date-str="${dateStr}">${shiftCellContent}</td>`;
+                const compWarn = compViolationCells.get(rowData.id)?.has(dateStr);
+                const taskBorderStyle = (cell.hours > 0 && assignedTask) ? `border:2px solid ${assignedTask.color};` : '';
+                tableHTML += `<td class="shift-td ${tdClass}${compWarn ? ' comp-missing-cell' : ''}" style="${taskBorderStyle}" data-worker-id="${rowData.id}" data-excel-id="${excelId}" data-date-str="${dateStr}">${shiftCellContent}</td>`;
             });
             const validHours =[0, 7, 14, 21, 28, 35, 42, 49]; const totalInt = Math.round(weeklyTotal); const isError = !validHours.includes(totalInt);
-            tableHTML += `<td class="total-horas-cell ${isError ? 'hour-error-cell' : ''}">${weeklyTotal}${isError ? ' <span class="warning-icon">⚠️</span>' : ''}</td>`;
+            const weekHasCompWarn = compViolationCells.get(rowData.id) && weekDates.some(d => compViolationCells.get(rowData.id).has(d));
+            tableHTML += `<td class="total-horas-cell ${isError ? 'hour-error-cell' : ''}">${weeklyTotal}${isError ? ' <span class="warning-icon">⚠️</span>' : ''}${weekHasCompWarn ? ' <span class="warning-icon comp-warn-icon" title="⚠️ Trabajó el domingo anterior y no tiene COMP en esta semana">🔔</span>' : ''}</td>`;
         });
         tableHTML += '</tr>';
     });
@@ -839,8 +861,8 @@ function printSchedulePDF() {
     // Cap row height at 6mm so cells never inflate when worker count is low.
     // Proportions: shift 73% / task 27% (same as before).
     const BASE_MM    = Math.min(6.0, 222 / numRows);
-    const SHIFT_H_MM = (BASE_MM * (162 / 222)).toFixed(4);
-    const TASK_H_MM  = (BASE_MM * (60  / 222)).toFixed(4);
+    const SHIFT_H_MM = (BASE_MM * (147 / 222)).toFixed(4);
+    const TASK_H_MM  = (BASE_MM * (75  / 222)).toFixed(4);
     const ROW_MM     = BASE_MM.toFixed(4);
 
     // ── thead ────────────────────────────────────────────────────────
@@ -903,7 +925,8 @@ function printSchedulePDF() {
             const taskInner = (cell.hours > 0 && assignedTask)
                 ? `<span style="${taskBadgeStyle(assignedTask)};overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;height:100%;width:100%;font-weight:700;">${assignedTask.icon}&nbsp;${taskDisplayName(assignedTask, `${excelId}_${dateStr}`)}</span>`
                 : '';
-            tbody += `<td class="td-shift"><div class="ci"><div class="st" style="${shiftStyle.bg};${shiftStyle.fg}">${shiftName}</div><div class="tk">${taskInner}</div></div></td>`;
+            const printTaskBorder = (cell.hours > 0 && assignedTask) ? `border:1.5pt solid ${assignedTask.color};` : '';
+            tbody += `<td class="td-shift" style="${printTaskBorder}"><div class="ci"><div class="st" style="${shiftStyle.bg};${shiftStyle.fg}">${shiftName}</div><div class="tk">${taskInner}</div></div></td>`;
         });
         tbody += '</tr>';
     });
@@ -927,7 +950,7 @@ html,body{width:100%;background:#fff;color:#111;font-family:Arial,Helvetica,sans
 .pd{font-size:4.5pt;color:#aaa;}
 /* Table */
 table{width:100%;border-collapse:collapse;table-layout:fixed;}
-thead tr{height:10mm;}
+thead tr{height:5mm;}
 th,td{border:.3pt solid #bbb;padding:0;overflow:hidden;}
 /* Fixed name column — no separate equipo column */
 .th-fixed,.td-fixed{background:#eceff1!important;font-weight:700;vertical-align:middle;}
@@ -935,8 +958,8 @@ th,td{border:.3pt solid #bbb;padding:0;overflow:hidden;}
 .td-name{width:22mm;min-width:22mm;max-width:22mm;vertical-align:middle;padding:1px 2px;}
 /* name-wrap: stacks worker name above aisle badge */
 .nw{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:0.8px;width:100%;height:100%;}
-.wn{font-size:3.1pt;font-weight:600;line-height:1.1;word-break:break-word;white-space:normal;width:100%;}
-.ab{font-size:1.9pt;font-weight:700;padding:0.8px 3px;border-radius:20pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:inline-block;line-height:1.5;}
+.wn{font-size:4pt;font-weight:600;line-height:1.1;word-break:break-word;white-space:normal;width:100%;overflow:hidden;}
+.ab{font-size:3.5pt;font-weight:700;padding:0.5px 2px;border-radius:20pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:inline-block;line-height:1.4;}
 /* Date headers */
 .th-date{text-align:center;font-size:4pt;background:#1a237e!important;color:#fff!important;font-weight:700;line-height:1.2;padding:1px 0;vertical-align:middle;}
 .hdr-sat{background:#4a148c!important;}
@@ -947,7 +970,7 @@ th,td{border:.3pt solid #bbb;padding:0;overflow:hidden;}
 /* .ci: explicit heights — shift area reduced 10%, task area unchanged */
 .ci{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;}
 .st{height:${SHIFT_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:3.6pt;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:clip;}
-.tk{height:${TASK_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:2.5pt;font-weight:600;white-space:nowrap;overflow:hidden;padding:0 1px;}
+.tk{height:${TASK_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:3pt;font-weight:700;white-space:nowrap;overflow:hidden;padding:0 1px;}
 /* Dynamic shift colours from app */
 ${dynamicShiftStyles}
 </style>
