@@ -18,6 +18,8 @@ function showToast(message, type = 'info') {
 }
 
 // Variables Globales
+let undoStack = [];
+const MAX_UNDO = 50;
 let isFullscreen = false;
 function getStateKey() { return 'kronoAppState_v2_' + (selectedStore || 'UNKNOWN'); }
 let selectedStore = null;
@@ -37,7 +39,8 @@ let appState = {
     leftoverAisles: [],
     dailyTasks: {},          // key: `${workerExcelId}_${date}` → task object
     taskNotes:  {},          // key: `${workerExcelId}_${date}` → string observación
-    taskCustomNames: {}      // key: `${workerExcelId}_${date}` → custom name for isEditable tasks
+    taskCustomNames: {},     // key: `${workerExcelId}_${date}` → custom name for isEditable tasks
+    dailyTasks2: {}          // key: `${workerExcelId}_${date}` → second task object (opcional)
 };
 
 // 5 tareas predeterminadas
@@ -55,6 +58,8 @@ const PREDEFINED_TASKS = [
 let _taskSyncTimer = null;
 let specialShiftFilter = null;
 let selectedMonthsFilter = new Set();
+let _tasksReportTaskFilter  = null; // taskId o null — filtra el informe por tarea
+let _tasksReportMonthFilter = null; // 'YYYY-MM' o null — filtra el informe por mes
 
 // Estado del Picker Manual de Rotación
 let _mpSeatIdA = null;
@@ -238,6 +243,7 @@ function loadAppState() {
         appState.dailyTasks      = data.state.dailyTasks      || {};
         appState.taskNotes       = data.state.taskNotes       || {};
         appState.taskCustomNames = data.state.taskCustomNames || {};
+        appState.dailyTasks2     = data.state.dailyTasks2     || {};
         
         document.getElementById('sidebar-tools').style.display = 'block';
         document.getElementById('filterControls').style.display = 'flex';
@@ -256,8 +262,9 @@ async function syncTasksToSheets() {
     const url = getSheetsUrl();
     if (!url || !selectedStore) return;
     const sheetName = `TAREAS_${selectedStore}`;
-    const headers = ['TRABAJADOR_ID', 'NOMBRE', 'PASILLO', 'FECHA', 'TAREA_ID', 'TAREA_NOMBRE', 'TAREA_ICONO', 'OBSERVACION'];
-    const rows = Object.entries(appState.dailyTasks).map(([key, task]) => {
+    const headers = ['TRABAJADOR_ID', 'NOMBRE', 'PASILLO', 'FECHA', 'TAREA_ID', 'TAREA_NOMBRE', 'TAREA_ICONO', 'OBSERVACION', 'SLOT'];
+    const rows = [];
+    Object.entries(appState.dailyTasks).forEach(([key, task]) => {
         const sepIdx = key.indexOf('_');
         const workerExcelId = key.substring(0, sepIdx);
         const date = key.substring(sepIdx + 1);
@@ -265,8 +272,18 @@ async function syncTasksToSheets() {
         const nombre  = worker ? worker.fixedData[0] : workerExcelId;
         const pasillo = worker ? (worker.fixedData[1] || '') : '';
         const obs = appState.taskNotes[key] || '';
-        return [workerExcelId, nombre, pasillo, date, task.id, task.name, task.icon, obs];
-    }).sort((a, b) => a[3].localeCompare(b[3]));
+        rows.push([workerExcelId, nombre, pasillo, date, task.id, task.name, task.icon, obs, 1]);
+    });
+    Object.entries(appState.dailyTasks2 || {}).forEach(([key, task]) => {
+        const sepIdx = key.indexOf('_');
+        const workerExcelId = key.substring(0, sepIdx);
+        const date = key.substring(sepIdx + 1);
+        const worker = appState.processedData.find(w => String(w.workerExcelId) === String(workerExcelId));
+        const nombre  = worker ? worker.fixedData[0] : workerExcelId;
+        const pasillo = worker ? (worker.fixedData[1] || '') : '';
+        rows.push([workerExcelId, nombre, pasillo, date, task.id, task.name, task.icon, '', 2]);
+    });
+    rows.sort((a, b) => a[3].localeCompare(b[3]) || a[8] - b[8]);
     try {
         await fetch(url, {
             method: 'POST',
@@ -283,19 +300,24 @@ async function loadTasksFromSheets() {
     try {
         const resp = await fetch(`${url}?action=getData&sheet=${encodeURIComponent(sheetName)}`).then(r => r.json());
         if (!resp.success || !resp.data || resp.data.length < 3) return;
-        appState.dailyTasks = {};
-        appState.taskNotes  = {};
-        // columnas: [0]TRABAJADOR_ID [1]NOMBRE [2]PASILLO [3]FECHA [4]TAREA_ID [5]TAREA_NOMBRE [6]TAREA_ICONO [7]OBSERVACION
+        appState.dailyTasks  = {};
+        appState.dailyTasks2 = {};
+        appState.taskNotes   = {};
+        // columnas: [0]TRABAJADOR_ID [1]NOMBRE [2]PASILLO [3]FECHA [4]TAREA_ID [5]TAREA_NOMBRE [6]TAREA_ICONO [7]OBSERVACION [8]SLOT
         resp.data.slice(2).forEach(row => {
             const workerExcelId = String(row[0] || '').trim();
             const date   = String(row[3] || '').trim();
             const taskId = row[4];
             const obs    = String(row[7] || '').trim();
+            const slot   = row[8] ? parseInt(row[8]) : 1;
             if (!workerExcelId || !date || !taskId) return;
             const task = PREDEFINED_TASKS.find(t => String(t.id) === String(taskId));
             const key = `${workerExcelId}_${date}`;
-            if (task) appState.dailyTasks[key] = task;
-            if (obs)  appState.taskNotes[key]  = obs;
+            if (task) {
+                if (slot === 2) appState.dailyTasks2[key] = task;
+                else            appState.dailyTasks[key]  = task;
+            }
+            if (obs && slot !== 2) appState.taskNotes[key] = obs;
         });
     } catch(e) { /* silent — hoja aún no existe */ }
 }
@@ -309,9 +331,22 @@ function assignTask(excelId, dateStr, taskId) {
     const key = `${excelId}_${dateStr}`;
     if (taskId === null) {
         delete appState.dailyTasks[key];
+        delete appState.dailyTasks2[key]; // Al quitar tarea 1 también se limpia la 2ª
     } else {
         const task = PREDEFINED_TASKS.find(t => t.id === taskId);
         if (task) appState.dailyTasks[key] = task;
+    }
+    refreshTaskBadgeInDOM(excelId, dateStr);
+    scheduleSyncTasks();
+}
+
+function assignTask2(excelId, dateStr, taskId) {
+    const key = `${excelId}_${dateStr}`;
+    if (taskId === null) {
+        delete appState.dailyTasks2[key];
+    } else {
+        const task = PREDEFINED_TASKS.find(t => t.id === taskId);
+        if (task) appState.dailyTasks2[key] = task;
     }
     refreshTaskBadgeInDOM(excelId, dateStr);
     scheduleSyncTasks();
@@ -346,8 +381,9 @@ function refreshTaskBadgeInDOM(excelId, dateStr) {
     if (!sel) return;
     const shift = allShifts[sel.value];
     if (!shift || shift.hours <= 0) return;
-    const key  = `${excelId}_${dateStr}`;
-    const task = appState.dailyTasks[key];
+    const key   = `${excelId}_${dateStr}`;
+    const task  = appState.dailyTasks[key];
+    const task2 = appState.dailyTasks2?.[key];
     const hasNote = !!appState.taskNotes[key];
     const div = document.createElement('div');
     if (task) {
@@ -355,7 +391,7 @@ function refreshTaskBadgeInDOM(excelId, dateStr) {
         div.dataset.excelId = excelId;
         div.dataset.dateStr = dateStr;
         div.style.cssText = taskBadgeStyle(task);
-        div.innerHTML = `${task.icon} <span>${taskDisplayName(task, key)}</span>${hasNote ? ' <span style="font-size:0.8em;opacity:0.7;" title="Tiene observación">📝</span>' : ''}`;
+        div.innerHTML = `${task.icon} <span>${taskDisplayName(task, key)}</span>${hasNote ? ' <span style="font-size:0.8em;opacity:0.7;" title="Tiene observación">📝</span>' : ''}${task2 ? ' <span style="font-size:0.65em;opacity:0.85;font-weight:900;" title="Tiene 2ª tarea asignada">+2ª</span>' : ''}`;
     } else {
         div.className = 'task-add-btn';
         div.dataset.excelId = excelId;
@@ -368,9 +404,10 @@ function refreshTaskBadgeInDOM(excelId, dateStr) {
 
 function openTaskPicker(excelId, dateStr, anchorEl) {
     closeTaskPicker();
-    const key  = `${excelId}_${dateStr}`;
-    const task = appState.dailyTasks[key];
-    const note = appState.taskNotes[key] || '';
+    const key   = `${excelId}_${dateStr}`;
+    const task  = appState.dailyTasks[key];
+    const task2 = appState.dailyTasks2?.[key] || null;
+    const note  = appState.taskNotes[key] || '';
     const popup = document.getElementById('taskPickerPopup');
     if (!popup) return;
 
@@ -380,12 +417,24 @@ function openTaskPicker(excelId, dateStr, anchorEl) {
         ${PREDEFINED_TASKS.map(t => {
             const bStyle = taskBadgeStyle(t);
             const isActive = task && task.id === t.id;
-            return `<button class="task-picker-item ${isActive ? 'task-picker-active' : ''}" data-task-id="${t.id}">
+            return `<button class="task-picker-item ${isActive ? 'task-picker-active' : ''}" data-task-id="${t.id}" data-slot="1">
                 <span class="task-picker-swatch" style="${bStyle};display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:4px;font-size:0.82em;font-weight:700;">${t.icon} ${t.name}</span>
                 ${isActive ? '<span class="task-picker-check" style="margin-left:auto;">✓</span>' : ''}
             </button>`;
         }).join('')}
-        <button class="task-picker-clear" data-task-id="null">✕ Quitar tarea</button>
+        <button class="task-picker-clear" data-task-id="null" data-slot="1">✕ Quitar tarea</button>
+        ${task ? `
+        <div style="border-top:1px dashed #e0e0e0;margin-top:6px;padding-top:6px;">
+            <div style="font-size:0.72em;color:#7b1fa2;font-weight:700;letter-spacing:0.5px;margin-bottom:4px;text-transform:uppercase;">➕ Segunda Tarea (opcional)</div>
+            ${PREDEFINED_TASKS.map(t => {
+                const isActive2 = task2 && task2.id === t.id;
+                return `<button class="task-picker-item ${isActive2 ? 'task-picker-active' : ''}" data-task-id="${t.id}" data-slot="2" style="padding:4px 8px;">
+                    <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.78em;font-weight:700;">${t.icon} ${t.shortName}</span>
+                    ${isActive2 ? '<span style="margin-left:auto;font-size:0.9em;">✓</span>' : ''}
+                </button>`;
+            }).join('')}
+            <button class="task-picker-clear" data-task-id="null" data-slot="2">✕ Quitar 2ª tarea</button>
+        </div>` : ''}
         <div id="taskCustomNameWrap" style="display:${task && task.isEditable ? 'block' : 'none'};border-top:1px solid #eee;margin-top:6px;padding-top:6px;">
             <div style="font-size:0.72em;color:#00bcd4;font-weight:700;letter-spacing:0.5px;margin-bottom:4px;text-transform:uppercase;">✏️ Nombre personalizado</div>
             <input id="taskCustomNameInput" type="text" maxlength="30" placeholder="Escribe el nombre de la tarea..." value="${customName}" style="width:100%;box-sizing:border-box;border:1px solid #00bcd4;border-radius:6px;font-size:0.85em;padding:5px 7px;font-family:inherit;color:#333;outline:none;">
@@ -413,13 +462,24 @@ function openTaskPicker(excelId, dateStr, anchorEl) {
     }, 0);
 
     const rect = anchorEl.getBoundingClientRect();
+    popup.style.left = '-9999px';
+    popup.style.top  = '-9999px';
     popup.style.display = 'block';
-    const pw = popup.offsetWidth || 220;
-    const ph = popup.offsetHeight || 300;
+    // Leer dimensiones reales del popup ya renderizado
+    const pw = popup.offsetWidth  || 230;
+    const ph = popup.offsetHeight || 350;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margin = 8;
+    // Preferir abajo del ancla; si no cabe, abrir arriba
+    let top  = rect.bottom + 4;
+    if (top + ph > vh - margin) top = rect.top - ph - 4;
+    // Preferir alineado a la izquierda del ancla; si sale por la derecha, desplazar
     let left = rect.left;
-    let top = rect.bottom + 4;
-    if (left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
-    if (top + ph > window.innerHeight - 8) top = rect.top - ph - 4;
+    if (left + pw > vw - margin) left = vw - pw - margin;
+    // Clampear para que nunca salga del viewport
+    if (left < margin) left = margin;
+    if (top  < margin) top  = margin;
     popup.style.left = left + 'px';
     popup.style.top  = top  + 'px';
 }
@@ -1057,14 +1117,35 @@ function renderDistributionAnalysis(dailyDistribution, visibleDates) {
     container.innerHTML = tableHTML + '</tbody></table></div>';
 }
 
+function pushUndo(workerId, dateStr, previousShift) {
+    undoStack.push({ workerId, dateStr, previousShift: { ...previousShift } });
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+    const btn = document.getElementById('undoBtn');
+    if (btn) btn.disabled = false;
+}
+
+function performUndo() {
+    if (!undoStack.length) { showToast('No hay cambios para deshacer.', 'info'); return; }
+    const { workerId, dateStr, previousShift } = undoStack.pop();
+    const worker = appState.processedData.find(w => w.id == workerId);
+    if (worker) {
+        worker.dailyData[dateStr] = { ...previousShift };
+        saveAppState();
+        renderAll();
+        showToast('↩ Cambio deshecho correctamente.', 'success');
+    }
+    const btn = document.getElementById('undoBtn');
+    if (btn) btn.disabled = undoStack.length === 0;
+}
+
 function updateShift(selectElement) {
     const { workerId, dateStr } = selectElement.dataset;
     const workerGlobal = appState.processedData.find(w => w.id == workerId);
-    if (workerGlobal) { 
-        // Conservar el aisle actual
+    if (workerGlobal) {
+        pushUndo(workerId, dateStr, { ...workerGlobal.dailyData[dateStr] });
         const currentAisle = workerGlobal.dailyData[dateStr].aisle;
-        workerGlobal.dailyData[dateStr] = { ...allShifts[selectElement.value], aisle: currentAisle }; 
-        saveAppState(); 
+        workerGlobal.dailyData[dateStr] = { ...allShifts[selectElement.value], aisle: currentAisle };
+        saveAppState();
     }
     renderAll();
 }
@@ -2057,17 +2138,58 @@ function renderKrebsReport() {
     container.scrollIntoView({ behavior: 'smooth' });
 }
 
+function toggleTaskReportFilter(taskId) {
+    _tasksReportTaskFilter = _tasksReportTaskFilter === taskId ? null : taskId;
+    renderTasksReport();
+}
+function toggleTaskReportMonth(month) {
+    _tasksReportMonthFilter = _tasksReportMonthFilter === month ? null : month;
+    renderTasksReport();
+}
+function clearTaskReportFilters() {
+    _tasksReportTaskFilter  = null;
+    _tasksReportMonthFilter = null;
+    renderTasksReport();
+}
+function clearTaskReportMonthFilter() {
+    _tasksReportMonthFilter = null;
+    renderTasksReport();
+}
+
 function renderTasksReport() {
     const container = document.getElementById('tasksReportContainer');
     if (!container) return;
 
-    const entries = Object.entries(appState.dailyTasks);
+    const meses     = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    const monthFull = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const fmtDate   = d => { const [,m,day] = d.split('-'); return `${parseInt(day)} ${meses[parseInt(m)-1]}`; };
 
-    if (!entries.length) {
+    // Recopilar todas las filas: slot 1 (principal) y slot 2 (segunda tarea)
+    const allRows = [];
+    Object.entries(appState.dailyTasks).forEach(([key, task]) => {
+        const sepIdx = key.indexOf('_');
+        const excelId = key.substring(0, sepIdx);
+        const date    = key.substring(sepIdx + 1);
+        const worker  = appState.processedData.find(w => String(w.workerExcelId) === String(excelId));
+        const obs     = appState.taskNotes[key] || '';
+        allRows.push({ nombre: worker ? worker.fixedData[0] : excelId, pasillo: worker ? (worker.fixedData[1] || '—') : '—', date, task, obs, slot: 1 });
+    });
+    Object.entries(appState.dailyTasks2 || {}).forEach(([key, task]) => {
+        const sepIdx = key.indexOf('_');
+        const excelId = key.substring(0, sepIdx);
+        const date    = key.substring(sepIdx + 1);
+        const worker  = appState.processedData.find(w => String(w.workerExcelId) === String(excelId));
+        allRows.push({ nombre: worker ? worker.fixedData[0] : excelId, pasillo: worker ? (worker.fixedData[1] || '—') : '—', date, task, obs: '', slot: 2 });
+    });
+    allRows.sort((a, b) => a.date.localeCompare(b.date) || a.nombre.localeCompare(b.nombre) || a.slot - b.slot);
+
+    const closeBtnHtml = `<button onclick="document.getElementById('tasksReportContainer').style.display='none';document.getElementById('tasksReportBtn')?.classList.remove('sidebar-btn--active');" class="btn-danger" style="padding:5px 15px;font-size:0.9em;">Cerrar</button>`;
+
+    if (!allRows.length) {
         container.innerHTML = `<div style="padding:20px;">
             <div style="padding:10px;border-bottom:2px dashed #b0bec5;margin-bottom:15px;display:flex;justify-content:space-between;align-items:center;">
                 <h3 style="margin:0;color:#1a237e;">📌 Informe de Ejecución de Tareas</h3>
-                <button onclick="document.getElementById('tasksReportContainer').style.display='none';document.getElementById('tasksReportBtn')?.classList.remove('sidebar-btn--active');" class="btn-danger" style="padding:5px 15px;font-size:0.9em;">Cerrar</button>
+                ${closeBtnHtml}
             </div>
             <p style="color:#999;text-align:center;padding:30px;">No hay tareas asignadas aún.</p></div>`;
         container.style.display = 'block';
@@ -2075,67 +2197,99 @@ function renderTasksReport() {
         return;
     }
 
-    // Construir filas con datos completos
-    const rows = entries.map(([key, task]) => {
-        const sepIdx = key.indexOf('_');
-        const excelId = key.substring(0, sepIdx);
-        const date    = key.substring(sepIdx + 1);
-        const worker  = appState.processedData.find(w => String(w.workerExcelId) === String(excelId));
-        const obs     = appState.taskNotes[key] || '';
-        return {
-            nombre:  worker ? worker.fixedData[0] : excelId,
-            pasillo: worker ? (worker.fixedData[1] || '—') : '—',
-            date, task, obs
-        };
-    }).sort((a, b) => a.date.localeCompare(b.date) || a.nombre.localeCompare(b.nombre));
-
-    // Conteo por tarea
+    // Conteo por tarea (todos los slots)
     const countByTask = {};
     PREDEFINED_TASKS.forEach(t => { countByTask[t.id] = 0; });
-    rows.forEach(r => { if (countByTask[r.task.id] !== undefined) countByTask[r.task.id]++; });
+    allRows.forEach(r => { if (countByTask[r.task.id] !== undefined) countByTask[r.task.id]++; });
 
-    const summaryCards = PREDEFINED_TASKS.filter(t => countByTask[t.id] > 0).map(t => `
-        <div style="background:${t.color}14;border:2px solid ${t.color}44;border-radius:10px;padding:12px 18px;text-align:center;min-width:110px;flex:1;">
+    // Tarjetas resumen — clicables para filtrar
+    const summaryCards = PREDEFINED_TASKS.filter(t => countByTask[t.id] > 0).map(t => {
+        const isActive = _tasksReportTaskFilter === t.id;
+        const dimmed   = _tasksReportTaskFilter !== null && !isActive;
+        return `
+        <div onclick="toggleTaskReportFilter(${t.id})" style="
+            background:${t.color}14;border:2px solid ${isActive ? t.color : t.color + '44'};
+            border-radius:10px;padding:12px 18px;text-align:center;min-width:110px;flex:1;
+            cursor:pointer;transition:all 0.15s;opacity:${dimmed ? '0.35' : '1'};
+            ${isActive ? 'box-shadow:0 0 0 3px ' + t.color + '55;transform:scale(1.05);' : ''}
+            user-select:none;" title="Clic para filtrar por ${t.name}">
             <div style="font-size:1.7em;">${t.icon}</div>
             <div style="font-size:1.5em;font-weight:900;color:${t.color};">${countByTask[t.id]}</div>
             <div style="font-size:0.75em;color:#555;font-weight:600;line-height:1.3;">${t.shortName}</div>
-        </div>`).join('');
+            ${isActive ? `<div style="font-size:0.62em;color:${t.color};margin-top:2px;font-weight:800;letter-spacing:0.5px;">▼ FILTRADO</div>` : ''}
+        </div>`;
+    }).join('');
 
-    const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-    const fmtDate = d => { const [,m,day] = d.split('-'); return `${parseInt(day)} ${meses[parseInt(m)-1]}`; };
+    const totalCard = `
+        <div onclick="clearTaskReportFilters()" style="
+            background:#1a237e14;border:2px solid ${_tasksReportTaskFilter !== null ? '#1a237e' : '#1a237e44'};
+            border-radius:10px;padding:12px 18px;text-align:center;min-width:110px;flex:1;
+            cursor:pointer;transition:all 0.15s;user-select:none;" title="Ver todas las tareas">
+            <div style="font-size:1.7em;">📊</div>
+            <div style="font-size:1.5em;font-weight:900;color:#1a237e;">${allRows.length}</div>
+            <div style="font-size:0.75em;color:#555;font-weight:600;">Total tareas</div>
+        </div>`;
 
-    const tableRows = rows.map(r => `
-        <tr>
+    // Filtro por mes
+    const availableMonths = [...new Set(allRows.map(r => r.date.substring(0, 7)))].sort();
+    const monthFilterBar = availableMonths.length > 1 ? `
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px 4px 12px;border-bottom:1px dashed #e0e0e0;margin-bottom:12px;">
+            <span style="font-size:0.78em;color:#888;font-weight:700;margin-right:4px;">📅 Filtrar por mes:</span>
+            ${availableMonths.map(m => {
+                const [yr, mn] = m.split('-');
+                const isActiveM = _tasksReportMonthFilter === m;
+                return `<button onclick="toggleTaskReportMonth('${m}')" style="
+                    padding:4px 13px;border-radius:20px;
+                    border:1px solid ${isActiveM ? '#1565c0' : '#ddd'};
+                    background:${isActiveM ? '#1565c0' : '#f5f5f5'};
+                    color:${isActiveM ? '#fff' : '#555'};
+                    font-size:0.82em;font-weight:${isActiveM ? '700' : '500'};
+                    cursor:pointer;transition:all 0.15s;
+                ">${monthFull[parseInt(mn)-1].substring(0,3)} ${yr}</button>`;
+            }).join('')}
+            ${_tasksReportMonthFilter ? `<button onclick="clearTaskReportMonthFilter()" style="padding:4px 10px;border-radius:20px;border:1px solid #e53935;background:#fff;color:#e53935;font-size:0.78em;cursor:pointer;font-weight:600;">✕ Ver todos</button>` : ''}
+        </div>` : '';
+
+    // Aplicar filtros
+    let filteredRows = allRows;
+    if (_tasksReportTaskFilter !== null) filteredRows = filteredRows.filter(r => r.task.id === _tasksReportTaskFilter);
+    if (_tasksReportMonthFilter)         filteredRows = filteredRows.filter(r => r.date.startsWith(_tasksReportMonthFilter));
+
+    const filterInfo = (_tasksReportTaskFilter !== null || _tasksReportMonthFilter) ? `
+        <div style="background:#e3f2fd;border:1px solid #90caf9;border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;font-size:0.88em;flex-wrap:wrap;gap:6px;">
+            <span>🔍 Mostrando <strong>${filteredRows.length}</strong> de <strong>${allRows.length}</strong> registros</span>
+            <button onclick="clearTaskReportFilters()" style="background:#1565c0;color:#fff;border:none;border-radius:5px;padding:3px 10px;cursor:pointer;font-size:0.88em;font-weight:600;">✕ Limpiar filtros</button>
+        </div>` : '';
+
+    const tableRows = filteredRows.map(r => `
+        <tr${r.slot === 2 ? ' style="background:#fafafa;"' : ''}>
             <td style="font-weight:600;color:#1a237e;white-space:nowrap;">${r.nombre}</td>
             <td><span style="background:#e8eaf6;color:#3949ab;padding:2px 8px;border-radius:5px;font-size:0.82em;font-weight:700;">${r.pasillo}</span></td>
             <td style="color:#555;white-space:nowrap;">${fmtDate(r.date)}</td>
-            <td>
-                <span style="${taskBadgeStyle(r.task)};padding:3px 10px;border-radius:6px;font-size:0.82em;font-weight:700;white-space:nowrap;">
-                    ${r.task.icon} ${r.task.name}
-                </span>
-            </td>
+            <td>${r.slot === 2
+                ? `<span style="background:#f5f5f5;color:#555;border:1px dashed #bbb;padding:3px 8px;border-radius:6px;font-size:0.82em;font-weight:600;white-space:nowrap;">${r.task.icon} ${r.task.name} <span style="font-size:0.78em;color:#aaa;">(2ª tarea)</span></span>`
+                : `<span style="${taskBadgeStyle(r.task)};padding:3px 10px;border-radius:6px;font-size:0.82em;font-weight:700;white-space:nowrap;">${r.task.icon} ${r.task.name}</span>`
+            }</td>
             <td style="color:#555;font-size:0.85em;max-width:200px;white-space:pre-wrap;line-height:1.4;">${r.obs ? `<span title="${r.obs.replace(/"/g,'&quot;')}">📝 ${r.obs}</span>` : '<span style="color:#bbb;">—</span>'}</td>
         </tr>`).join('');
 
     container.innerHTML = `
         <div style="padding:10px;border-bottom:2px dashed #b0bec5;margin-bottom:15px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <h3 style="margin:0;color:#1a237e;">📌 Informe de Ejecución de Tareas</h3>
-            <button onclick="document.getElementById('tasksReportContainer').style.display='none';document.getElementById('tasksReportBtn')?.classList.remove('sidebar-btn--active');" class="btn-danger" style="padding:5px 15px;font-size:0.9em;">Cerrar</button>
+            ${closeBtnHtml}
         </div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px;padding:0 4px;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:0 4px;">
             ${summaryCards}
-            <div style="background:#1a237e14;border:2px solid #1a237e44;border-radius:10px;padding:12px 18px;text-align:center;min-width:110px;flex:1;">
-                <div style="font-size:1.7em;">📊</div>
-                <div style="font-size:1.5em;font-weight:900;color:#1a237e;">${rows.length}</div>
-                <div style="font-size:0.75em;color:#555;font-weight:600;">Total tareas</div>
-            </div>
+            ${totalCard}
         </div>
+        ${monthFilterBar}
+        ${filterInfo}
         <div class="summary-container" style="margin-top:0;">
             <table class="summary-table" style="width:100%;">
                 <thead><tr>
                     <th>Trabajador</th><th>Pasillo</th><th>Fecha</th><th>Tarea</th><th>Observación</th>
                 </tr></thead>
-                <tbody>${tableRows}</tbody>
+                <tbody>${tableRows.length ? tableRows : '<tr><td colspan="5" style="text-align:center;color:#bbb;padding:20px;">Sin resultados para el filtro seleccionado</td></tr>'}</tbody>
             </table>
         </div>`;
     container.style.display = 'block';
@@ -2798,6 +2952,7 @@ async function loadFromGoogleSheets() {
         if (!processedData.length) throw new Error('No se encontraron trabajadores coincidentes entre SCHED y PLANTA. Verifica que el código TRABAJADOR sea idéntico en ambas hojas.');
 
         appState.processedData = processedData;
+        undoStack = []; const _ubu1 = document.getElementById('undoBtn'); if (_ubu1) _ubu1.disabled = true;
         updateMatrixStatus('CONSTRUYENDO PROGRAMACIÓN...');
         await new Promise(r => setTimeout(r, 400));
         applyLegalHours(); populateFilters(); renderAll(); computeAndShowMetrics(); saveAppState();
@@ -3071,6 +3226,7 @@ async function autoLoadFromProgSheet() {
         }
 
         appState.processedData = processedData;
+        undoStack = []; const _ubu2 = document.getElementById('undoBtn'); if (_ubu2) _ubu2.disabled = true;
         applyLegalHours();
         const _splashSt2 = document.getElementById('splashStatus');
         if (_splashSt2) _splashSt2.textContent = 'Construyendo programación...';
@@ -3848,6 +4004,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const exId  = popup.dataset.excelId;
         const dStr  = popup.dataset.dateStr;
         const tId   = item.dataset.taskId === 'null' ? null : parseInt(item.dataset.taskId);
+        const slot  = item.dataset.slot === '2' ? 2 : 1;
+        if (slot === 2) {
+            assignTask2(exId, dStr, tId);
+            closeTaskPicker();
+            return;
+        }
         assignTask(exId, dStr, tId);
         // Show custom name field if personalizada selected; keep picker open for name input
         const wrap = document.getElementById('taskCustomNameWrap');
@@ -3864,6 +4026,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTaskPicker(); });
+    document.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+            if (e.target.classList.contains('editable-name') || e.target.classList.contains('shift-select')) return;
+            e.preventDefault();
+            performUndo();
+        }
+    });
+    attachEvt('undoBtn', 'click', performUndo);
     attachEvt('pasilloFilter', 'change', renderAll);
     attachEvt('restriccionFilter', 'change', renderAll);
     attachEvt('nameSearch', 'input', renderAll);
