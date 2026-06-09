@@ -81,7 +81,7 @@ const shift8hTo7hMap = {};
 function applyVerMiMallaMode() {
     // Ocultar todo el sidebar excepto info de tienda y logout
     const hideIds = [
-        'plantManagerBtn', 'coverageBtn', 'distributionBtn', 'staffDistributionBtn',
+        'plantManagerBtn', 'plantHealthBtn', 'coverageBtn', 'distributionBtn', 'staffDistributionBtn',
         'krebsReportBtn', 'tasksReportBtn', 'correctionBtn', 'seasonBtn', 'massChangeBtn', 'equidadBtn',
         'sheetsSyncBtn', 'sheetsConfigBtn', 'restoreSessionBtn', 'downloadBtn', 'loadFromProgBtn'
     ];
@@ -127,7 +127,7 @@ function applyVerMiMallaMode() {
 function applyMarcacionesMode() {
     // Ocultar herramientas de edición del sidebar
     const hideIds = [
-        'plantManagerBtn', 'coverageBtn', 'distributionBtn', 'staffDistributionBtn',
+        'plantManagerBtn', 'plantHealthBtn', 'coverageBtn', 'distributionBtn', 'staffDistributionBtn',
         'krebsReportBtn', 'tasksReportBtn', 'correctionBtn', 'seasonBtn', 'massChangeBtn', 'equidadBtn',
         'sheetsSyncBtn', 'sheetsConfigBtn', 'restoreSessionBtn'
     ];
@@ -2023,32 +2023,85 @@ function renderPlantManager() {
         return;
     }
     const allAisles = [...new Set(appState.workerMasterData.map(m => m.pasillo).filter(Boolean))].sort();
+
+    const todayPM = new Date(); todayPM.setHours(0, 0, 0, 0);
+    const isOnVacation = m => {
+        if (!m.inicia || !m.finaliza) return false;
+        const s = new Date(m.inicia + 'T00:00:00'), e = new Date(m.finaliza + 'T00:00:00');
+        return todayPM >= s && todayPM <= e;
+    };
+
+    const equipoStyleMap = {
+        '':    { bg: '#e8f5e9', color: '#2e7d32', border: '#2e7d32', label: '🟢 LIBRE' },
+        'R':   { bg: '#fff8e1', color: '#f57f17', border: '#f57f17', label: '🟡 R' },
+        'RM':  { bg: '#fce4ec', color: '#c62828', border: '#c62828', label: '🔴 RM' },
+        'SDF': { bg: '#e3f2fd', color: '#1565c0', border: '#1565c0', label: '🔵 SDF' },
+    };
+    const getEquipoStyle = eq => equipoStyleMap[String(eq || '').trim().toUpperCase()] || { bg: '#f5f5f5', color: '#546e7a', border: '#90a4ae', label: eq };
+
+    const allActive   = appState.workerMasterData.filter(m => !m.isPlaceholder);
+    const vacToday    = allActive.filter(m => isOnVacation(m));
+    const countActive = allActive.length - vacToday.length;
+
     let html = `
-    <div style="padding:10px; border-bottom:2px dashed #b0bec5; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0; color:#1a237e;">🏭 Administrar mi Planta</h3>
+    <div style="padding:10px; border-bottom:2px dashed #b0bec5; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div>
+            <h3 style="margin:0; color:#1a237e;">🏭 Administrar mi Planta</h3>
+            <p style="margin:4px 0 0; font-size:0.78em; color:#546e7a;">
+                Total: <strong>${allActive.length}</strong> auxiliares
+                &nbsp;·&nbsp; Activos hoy: <strong style="color:#2e7d32;">${countActive}</strong>
+                ${vacToday.length > 0 ? `&nbsp;·&nbsp; <span style="color:#e65100; font-weight:600;">🏖️ ${vacToday.length} de vacaciones</span>` : ''}
+            </p>
+        </div>
         <button onclick="document.getElementById('plantManagerContainer').style.display='none'; document.getElementById('plantManagerBtn')?.classList.remove('sidebar-btn--active');" class="btn-danger" style="padding:5px 15px; font-size:0.9em;">Cerrar</button>
     </div>
     <div class="summary-container" style="margin-top:0;">
     <table class="summary-table plant-table" style="width:100%;">
         <thead><tr>
-            <th>TRABAJADOR</th><th>NOMBRE</th><th>INICIA (Vac.)</th><th>FINALIZA (Vac.)</th><th>PASILLO</th><th>COD NOMINA</th>
+            <th>TRABAJADOR</th><th>NOMBRE</th><th>INICIA (Vac.)</th><th>FINALIZA (Vac.)</th><th>PASILLO</th>
+            <th style="width:80px; text-align:center;" title="Estado de restricción nocturna (columna EQUIPO del Sheets)">EQUIPO</th>
+            <th>COD NOMINA</th>
         </tr></thead><tbody>`;
+
     appState.workerMasterData.forEach(m => {
-        const isSwapped = appState.swappedSeats.has(m.id);
+        const isSwapped  = appState.swappedSeats.has(m.id);
+        const vacNow     = !m.isPlaceholder && isOnVacation(m);
+        const eq         = String(m.equipo || '').trim().toUpperCase();
+        const es         = getEquipoStyle(eq);
+
         const placeholderTag = m.isPlaceholder
             ? `<span title="Puesto vacante — excluido de turnos y métricas" style="display:inline-block;margin-left:6px;font-size:0.72em;font-weight:700;letter-spacing:1px;padding:1px 6px;border-radius:3px;background:#fff3e0;color:#e65100;border:1px solid #ffb74d;">VACANTE</span>`
             : '';
+        const vacBadge = vacNow
+            ? `<span title="De vacaciones hoy" style="display:inline-block;margin-left:5px;font-size:0.7em;font-weight:700;padding:1px 5px;border-radius:3px;background:#e3f2fd;color:#1565c0;border:1px solid #90caf9;">🏖️ VAC</span>`
+            : '';
+
         const nombreUpper = m.nombre.toUpperCase();
         const needsPasilloDropdown = /\bTEMPORAL\b/.test(nombreUpper) || /\bSENA\b/.test(nombreUpper);
         const pasilloCell = needsPasilloDropdown
             ? `<select class="plant-input plant-pasillo-input" data-worker-id="${m.id}">${allAisles.map(a => `<option value="${a}"${a === m.pasillo ? ' selected' : ''}>${a}</option>`).join('')}</select>`
             : `<span id="plant-pasillo-${m.id}" style="${isSwapped ? 'color:var(--corp-orange); font-weight:bold;' : ''}">${m.pasillo}${isSwapped ? ' 🔄' : ''}</span>`;
-        html += `<tr style="${m.isPlaceholder ? 'opacity:0.6;background:#fff8f1;' : ''}">
-            <td style="font-weight:bold; color:#1a237e;">${m.workerExcelId}${placeholderTag}</td>
+
+        const equipoSelect = m.isPlaceholder ? '<span style="color:#bbb; font-size:0.8em;">—</span>' : `
+            <select class="plant-equipo-select" data-worker-id="${m.id}"
+                style="font-size:0.78em; padding:3px 4px; border-radius:5px; border:1.5px solid ${es.border}; background:${es.bg}; color:${es.color}; font-weight:700; cursor:pointer; width:72px; text-align:center;">
+                <option value=""  ${eq===''   ?'selected':''}>🟢 LIBRE</option>
+                <option value="R" ${eq==='R'  ?'selected':''}>🟡 R</option>
+                <option value="RM"${eq==='RM' ?'selected':''}>🔴 RM</option>
+                <option value="SDF"${eq==='SDF'?'selected':''}>🔵 SDF</option>
+            </select>`;
+
+        const rowStyle = m.isPlaceholder
+            ? 'opacity:0.6;background:#fff8f1;'
+            : vacNow ? 'background:#e3f2fd;' : '';
+
+        html += `<tr style="${rowStyle}">
+            <td style="font-weight:bold; color:#1a237e;">${m.workerExcelId}${placeholderTag}${vacBadge}</td>
             <td><input type="text" class="plant-input plant-name-input" data-worker-id="${m.id}" value="${m.nombre.replace(/"/g,'&quot;')}"></td>
             <td><input type="date" class="plant-input plant-inicia-input" data-worker-id="${m.id}" value="${m.inicia}"></td>
             <td><input type="date" class="plant-input plant-finaliza-input" data-worker-id="${m.id}" value="${m.finaliza}"></td>
             <td>${pasilloCell}</td>
+            <td style="text-align:center;">${equipoSelect}</td>
             <td><input type="text" class="plant-input plant-restriccion-input" data-worker-id="${m.id}" value="${(m.restriccion || '').replace(/"/g,'&quot;')}" placeholder="Cód. Nómina"></td>
         </tr>`;
     });
@@ -2057,6 +2110,381 @@ function renderPlantManager() {
     container.innerHTML = html;
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth' });
+}
+
+function renderPlantHealthReport() {
+    const container = document.getElementById('plantHealthContainer');
+    if (!container) return;
+
+    if (appState.workerMasterData.length === 0) {
+        container.innerHTML = '<div style="padding:20px;"><p style="color:#c62828;">No hay datos de planta cargados. Cargue el archivo Excel primero.</p></div>';
+        container.style.display = 'block';
+        return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const allWorkers = appState.workerMasterData.filter(m => !m.isPlaceholder);
+
+    const onVacation = allWorkers.filter(m => {
+        if (!m.inicia || !m.finaliza) return false;
+        const start = new Date(m.inicia + 'T00:00:00');
+        const end   = new Date(m.finaliza + 'T00:00:00');
+        return today >= start && today <= end;
+    });
+    const onVacationIds = new Set(onVacation.map(m => m.id));
+    const activeWorkers = allWorkers.filter(m => !onVacationIds.has(m.id));
+
+    const normalize = v => String(v || '').trim().toUpperCase();
+    const categorize = w => {
+        const eq = normalize(w.equipo);
+        if (eq === 'R')   return 'R';
+        if (eq === 'RM')  return 'RM';
+        if (eq === 'SDF') return 'SDF';
+        if (eq === '')    return 'LIBRE';
+        return 'OTRO';
+    };
+
+    const allStats    = { LIBRE: 0, R: 0, RM: 0, SDF: 0, OTRO: 0 };
+    const activeStats = { LIBRE: 0, R: 0, RM: 0, SDF: 0, OTRO: 0 };
+    const vacStats    = { LIBRE: 0, R: 0, RM: 0, SDF: 0 };
+    allWorkers.forEach(m => allStats[categorize(m)]++);
+    activeWorkers.forEach(m => activeStats[categorize(m)]++);
+    onVacation.forEach(m => { const c = categorize(m); if (vacStats[c] !== undefined) vacStats[c]++; });
+
+    const totalActive   = activeWorkers.length;
+    const canNight      = activeStats.LIBRE;
+    const cannotNight   = totalActive - canNight;
+    const nightPct      = totalActive > 0 ? Math.round((canNight / totalActive) * 100) : 0;
+    const totalPlant    = allWorkers.length;
+    const plantNightPct = totalPlant > 0 ? Math.round((allStats.LIBRE / totalPlant) * 100) : 0;
+
+    let healthColor, healthLabel, healthEmoji, healthBg;
+    if (nightPct >= 70)      { healthColor = '#2e7d32'; healthLabel = 'ÓPTIMO';    healthEmoji = '🟢'; healthBg = '#e8f5e9'; }
+    else if (nightPct >= 50) { healthColor = '#f57f17'; healthLabel = 'MODERADO';  healthEmoji = '🟡'; healthBg = '#fff8e1'; }
+    else                     { healthColor = '#c62828'; healthLabel = 'CRÍTICO';   healthEmoji = '🔴'; healthBg = '#fce4ec'; }
+
+    const byPasillo = {};
+    allWorkers.forEach(m => {
+        const p = m.pasillo || 'SIN PASILLO';
+        if (!byPasillo[p]) byPasillo[p] = { total: 0, vacation: 0, libre: 0, r: 0, rm: 0, sdf: 0, otro: 0 };
+        byPasillo[p].total++;
+        if (onVacationIds.has(m.id)) {
+            byPasillo[p].vacation++;
+        } else {
+            const c = categorize(m);
+            if (c === 'LIBRE')     byPasillo[p].libre++;
+            else if (c === 'R')   byPasillo[p].r++;
+            else if (c === 'RM')  byPasillo[p].rm++;
+            else if (c === 'SDF') byPasillo[p].sdf++;
+            else                  byPasillo[p].otro++;
+        }
+    });
+    const pasilloEntries = Object.entries(byPasillo).sort((a, b) => b[1].total - a[1].total);
+
+    const dateStr = today.toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const chartId = 'phDonut_' + Date.now();
+
+    const CAT_META = {
+        LIBRE: { label: 'Sin Restricción', emoji: '🟢', fg: '#2e7d32', bg: '#e8f5e9', border: '#2e7d32' },
+        R:     { label: 'Restricción Rol',     emoji: '🟡', fg: '#f57f17', bg: '#fff8e1', border: '#f57f17' },
+        RM:    { label: 'Restricción Médica',   emoji: '🔴', fg: '#c62828', bg: '#fce4ec', border: '#c62828' },
+        SDF:   { label: 'SADOFES',              emoji: '🔵', fg: '#1565c0', bg: '#e3f2fd', border: '#1565c0' },
+    };
+
+    const alertBanner = nightPct < 50
+        ? `<div style="background:#fce4ec; border:2px solid #c62828; border-radius:8px; padding:12px 16px; margin:0 12px 16px; display:flex; align-items:center; gap:10px;">
+               <span style="font-size:1.5em;">⚠️</span>
+               <div>
+                   <strong style="color:#c62828;">ALERTA — Capacidad Nocturna Crítica</strong>
+                   <p style="margin:4px 0 0; font-size:0.83em; color:#b71c1c;">
+                       Solo el <strong>${nightPct}%</strong> de los auxiliares disponibles hoy pueden trasnochar.
+                       Se recomienda revisar asignaciones de turnos nocturnos y evaluar cobertura.
+                   </p>
+               </div>
+           </div>`
+        : nightPct < 70
+        ? `<div style="background:#fff8e1; border:2px solid #f57f17; border-radius:8px; padding:12px 16px; margin:0 12px 16px; display:flex; align-items:center; gap:10px;">
+               <span style="font-size:1.5em;">⚠️</span>
+               <div>
+                   <strong style="color:#f57f17;">ATENCIÓN — Capacidad Nocturna Moderada</strong>
+                   <p style="margin:4px 0 0; font-size:0.83em; color:#e65100;">
+                       El <strong>${nightPct}%</strong> de los auxiliares disponibles hoy pueden trasnochar. Monitorear cobertura nocturna.
+                   </p>
+               </div>
+           </div>`
+        : '';
+
+    const pasilloTableHTML = pasilloEntries.length > 0 ? `
+    <div style="padding:0 12px 16px;">
+        <h4 style="color:#37474f; margin:0 0 6px; font-size:0.88em; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #e0e0e0; padding-bottom:6px;">
+            🗂️ Desglose por Pasillo — Capacidad Operativa
+        </h4>
+        <p style="font-size:0.75em; color:#78909c; margin:0 0 10px;">
+            Total incluye vacaciones · Capacidad = aptos para trasnochar / total del pasillo
+        </p>
+        <div style="overflow-x:auto;">
+        <table class="summary-table" style="width:100%; font-size:0.84em;">
+            <thead>
+                <tr>
+                    <th style="text-align:left;">Pasillo</th>
+                    <th style="text-align:center;" title="Todos los auxiliares del pasillo">Total</th>
+                    <th style="text-align:center; color:#1565c0;" title="Actualmente de vacaciones">🏖️ Vac</th>
+                    <th style="text-align:center;">🟢 Libre</th>
+                    <th style="text-align:center;">🟡 R</th>
+                    <th style="text-align:center;">🔴 RM</th>
+                    <th style="text-align:center;">🔵 SDF</th>
+                    <th style="text-align:center;">🌙 Noche</th>
+                    <th style="text-align:left; min-width:140px;" title="Aptos trasnochar / Total del pasillo">Cap. Operativa</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${pasilloEntries.map(([pasillo, s]) => {
+                    const apt = s.libre;
+                    const pct = s.total > 0 ? Math.round((apt / s.total) * 100) : 0;
+                    const activeInPasillo = s.total - s.vacation;
+                    const bc  = pct >= 70 ? '#2e7d32' : pct >= 50 ? '#f57f17' : '#c62828';
+                    const vacCell = s.vacation > 0
+                        ? `<td style="text-align:center; color:#1565c0; font-weight:700;">${s.vacation}</td>`
+                        : `<td style="text-align:center; color:#b0bec5;">—</td>`;
+                    return `<tr>
+                        <td style="font-weight:600;">${pasillo}</td>
+                        <td style="text-align:center; font-weight:700;">${s.total}</td>
+                        ${vacCell}
+                        <td style="text-align:center; color:#2e7d32; font-weight:700;">${s.libre}</td>
+                        <td style="text-align:center; color:#f57f17; font-weight:700;">${s.r || '—'}</td>
+                        <td style="text-align:center; color:#c62828; font-weight:700;">${s.rm || '—'}</td>
+                        <td style="text-align:center; color:#1565c0; font-weight:700;">${s.sdf || '—'}</td>
+                        <td style="text-align:center; font-weight:700; color:${bc};">${apt}<span style="font-size:0.78em; font-weight:400; color:#78909c;"> /${s.total}</span></td>
+                        <td>
+                            <div style="background:#e0e0e0; border-radius:4px; height:18px; overflow:hidden; position:relative;">
+                                <div style="background:${bc}; width:${pct}%; height:100%; border-radius:4px; transition:width 0.5s ease; min-width:${apt > 0 ? '4px' : '0'};"></div>
+                                <span style="position:absolute; left:6px; top:0; line-height:18px; font-size:0.72em; font-weight:700; color:${pct > 20 ? '#fff' : bc};">${pct}%</span>
+                            </div>
+                            ${s.vacation > 0 ? `<div style="font-size:0.7em; color:#1565c0; margin-top:2px;">↳ ${activeInPasillo} activos hoy</div>` : ''}
+                        </td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
+        </div>
+    </div>` : '';
+
+    const vacTableHTML = onVacation.length > 0 ? `
+    <div style="padding:0 12px 16px;">
+        <h4 style="color:#37474f; margin:0 0 12px; font-size:0.88em; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #e0e0e0; padding-bottom:6px;">
+            🏖️ Personal en Vacaciones Hoy — ${onVacation.length} ausente(s)
+        </h4>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+            ${['LIBRE','R','RM','SDF'].filter(c => vacStats[c] > 0).map(c => {
+                const m = CAT_META[c];
+                return `<div style="background:${m.bg}; border:1.5px solid ${m.border}; border-radius:8px; padding:6px 14px; display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:0.82em; color:${m.fg}; font-weight:600;">${m.emoji} ${m.label}</span>
+                    <span style="font-size:1.1em; font-weight:700; color:${m.fg};">${vacStats[c]}</span>
+                </div>`;
+            }).join('')}
+        </div>
+        <div style="overflow-x:auto;">
+        <table class="summary-table" style="width:100%; font-size:0.82em;">
+            <thead><tr>
+                <th>Trabajador</th><th>Nombre</th><th>Pasillo</th><th>Restricción</th><th>Inicio Vac.</th><th>Fin Vac.</th>
+            </tr></thead>
+            <tbody>
+                ${onVacation.map(m => {
+                    const c  = categorize(m);
+                    const cm = CAT_META[c] || { fg: '#546e7a', bg: '#eceff1', border: '#90a4ae', emoji: '⚪', label: c };
+                    return `<tr>
+                        <td style="font-weight:600; color:#1a237e;">${m.workerExcelId}</td>
+                        <td>${m.nombre}</td>
+                        <td>${m.pasillo || '-'}</td>
+                        <td><span style="background:${cm.bg}; color:${cm.fg}; border:1px solid ${cm.border}; padding:2px 8px; border-radius:10px; font-size:0.8em; font-weight:700;">${cm.emoji} ${c}</span></td>
+                        <td>${m.inicia || '-'}</td>
+                        <td>${m.finaliza || '-'}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
+        </div>
+    </div>` : '';
+
+    const sortOrder = { LIBRE: 0, R: 1, SDF: 2, RM: 3, OTRO: 4 };
+    const detailHTML = `
+    <div style="padding:0 12px 16px;">
+        <details>
+            <summary style="cursor:pointer; color:#1a237e; font-size:0.88em; font-weight:600; padding:8px 0; text-transform:uppercase; letter-spacing:1px; user-select:none;">
+                📋 Ver Detalle Completo por Trabajador (${allWorkers.length})
+            </summary>
+            <div style="overflow-x:auto; margin-top:10px;">
+            <table class="summary-table" style="width:100%; font-size:0.82em;">
+                <thead><tr>
+                    <th>Trabajador</th><th>Nombre</th><th>Pasillo</th><th>Restricción EQUIPO</th><th style="text-align:center;">🌙 Trasnocha</th><th>Estado Hoy</th>
+                </tr></thead>
+                <tbody>
+                    ${[...allWorkers].sort((a, b) => (sortOrder[categorize(a)] ?? 4) - (sortOrder[categorize(b)] ?? 4)).map(m => {
+                        const c   = categorize(m);
+                        const cm  = CAT_META[c] || { fg: '#546e7a', bg: '#eceff1', border: '#90a4ae', emoji: '⚪', label: c };
+                        const isV = onVacationIds.has(m.id);
+                        const cn  = c === 'LIBRE';
+                        return `<tr style="${isV ? 'opacity:0.6; background:#fff3e0;' : ''}">
+                            <td style="font-weight:600; color:#1a237e;">${m.workerExcelId}</td>
+                            <td>${m.nombre}${isV ? ' <span style="font-size:0.72em;background:#fff3e0;color:#e65100;border:1px solid #ffb74d;padding:1px 5px;border-radius:3px;margin-left:4px;">VACACIONES</span>' : ''}</td>
+                            <td>${m.pasillo || '-'}</td>
+                            <td><span style="background:${cm.bg}; color:${cm.fg}; border:1px solid ${cm.border}; padding:2px 8px; border-radius:10px; font-size:0.8em; font-weight:700;">${cm.emoji} ${c === 'LIBRE' ? 'LIBRE' : c}</span></td>
+                            <td style="text-align:center;">${cn ? '<span style="color:#2e7d32; font-weight:700; font-size:1em;">✅ SÍ</span>' : '<span style="color:#c62828; font-weight:700; font-size:1em;">🚫 NO</span>'}</td>
+                            <td style="font-size:0.8em; color:${isV ? '#e65100' : '#2e7d32'}; font-weight:600;">${isV ? '🏖️ De Vacaciones' : '✅ Disponible'}</td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+            </div>
+        </details>
+    </div>`;
+
+    let html = `
+    <div style="padding:10px; border-bottom:2px dashed #b0bec5; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <h3 style="margin:0; color:#1a237e;">🏥 Salud de Auxiliares &amp; Capacidad Nocturna</h3>
+            <p style="margin:4px 0 0; font-size:0.78em; color:#78909c;">Generado el ${dateStr}</p>
+        </div>
+        <button onclick="document.getElementById('plantHealthContainer').style.display='none'; document.getElementById('plantHealthBtn')?.classList.remove('sidebar-btn--active');" class="btn-danger" style="padding:5px 15px; font-size:0.9em;">Cerrar</button>
+    </div>
+
+    ${alertBanner}
+
+    <!-- KPI CARDS -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(155px, 1fr)); gap:12px; padding:0 12px 16px;">
+        <div style="background:${healthBg}; border:2px solid ${healthColor}; border-radius:10px; padding:14px; text-align:center;">
+            <div style="font-size:1.8em;">${healthEmoji}</div>
+            <div style="font-size:1.7em; font-weight:700; color:${healthColor};">${nightPct}%</div>
+            <div style="font-size:0.72em; font-weight:600; color:${healthColor}; text-transform:uppercase; letter-spacing:1px; margin-top:2px;">Capacidad Nocturna</div>
+            <div style="font-size:0.7em; color:#546e7a; margin-top:4px;">Estado: <strong style="color:${healthColor};">${healthLabel}</strong></div>
+        </div>
+        <div style="background:#e3f2fd; border:2px solid #1565c0; border-radius:10px; padding:14px; text-align:center;">
+            <div style="font-size:1.8em;">👥</div>
+            <div style="font-size:1.7em; font-weight:700; color:#1565c0;">${totalPlant}</div>
+            <div style="font-size:0.72em; font-weight:600; color:#1565c0; text-transform:uppercase; letter-spacing:1px; margin-top:2px;">Total Planta</div>
+            <div style="font-size:0.7em; color:#546e7a; margin-top:4px;">${allStats.LIBRE} sin restricción (${plantNightPct}%)</div>
+        </div>
+        <div style="background:#e8f5e9; border:2px solid #2e7d32; border-radius:10px; padding:14px; text-align:center;">
+            <div style="font-size:1.8em;">✅</div>
+            <div style="font-size:1.7em; font-weight:700; color:#2e7d32;">${totalActive}</div>
+            <div style="font-size:0.72em; font-weight:600; color:#2e7d32; text-transform:uppercase; letter-spacing:1px; margin-top:2px;">Disponibles Hoy</div>
+            <div style="font-size:0.7em; color:#546e7a; margin-top:4px;">${onVacation.length} de vacaciones</div>
+        </div>
+        <div style="background:#f3e5f5; border:2px solid #6a1b9a; border-radius:10px; padding:14px; text-align:center;">
+            <div style="font-size:1.8em;">🌙</div>
+            <div style="font-size:1.7em; font-weight:700; color:#6a1b9a;">${canNight}</div>
+            <div style="font-size:0.72em; font-weight:600; color:#6a1b9a; text-transform:uppercase; letter-spacing:1px; margin-top:2px;">Aptos Trasnochar</div>
+            <div style="font-size:0.7em; color:#546e7a; margin-top:4px;">${cannotNight} con restricción</div>
+        </div>
+        <div style="background:#fce4ec; border:2px solid #c62828; border-radius:10px; padding:14px; text-align:center;">
+            <div style="font-size:1.8em;">🚫</div>
+            <div style="font-size:1.7em; font-weight:700; color:#c62828;">${cannotNight}</div>
+            <div style="font-size:0.72em; font-weight:600; color:#c62828; text-transform:uppercase; letter-spacing:1px; margin-top:2px;">No Trasnochan</div>
+            <div style="font-size:0.7em; color:#546e7a; margin-top:4px;">R: ${activeStats.R} · RM: ${activeStats.RM} · SDF: ${activeStats.SDF}</div>
+        </div>
+    </div>
+
+    <!-- LEYENDA -->
+    <div style="padding:0 12px 14px;">
+        <div style="display:flex; flex-wrap:wrap; gap:7px;">
+            ${Object.entries(CAT_META).map(([k, m]) =>
+                `<span style="background:${m.bg}; color:${m.fg}; border:1.5px solid ${m.border}; padding:4px 12px; border-radius:20px; font-size:0.8em; font-weight:600;">${m.emoji} ${k === 'LIBRE' ? 'LIBRE' : k} — ${m.label}${k === 'LIBRE' ? ' · ✅ Puede trasnochar' : ' · 🚫 No trasnocha'}</span>`
+            ).join('')}
+        </div>
+    </div>
+
+    <div style="border-top:1px solid #e0e0e0; margin:0 12px 16px;"></div>
+
+    <!-- GRÁFICAS: DONA + BARRAS -->
+    <div style="display:grid; grid-template-columns:minmax(260px, 320px) 1fr; gap:20px; padding:0 12px 16px; align-items:start;">
+
+        <!-- DONA (composición planta total) -->
+        <div style="background:#fafafa; border:1px solid #e0e0e0; border-radius:10px; padding:16px; text-align:center;">
+            <h4 style="color:#37474f; margin:0 0 12px; font-size:0.83em; text-transform:uppercase; letter-spacing:1px;">Composición Planta Total</h4>
+            <div style="position:relative; max-width:220px; margin:0 auto;">
+                <canvas id="${chartId}" width="220" height="220"></canvas>
+            </div>
+            <div style="margin-top:8px; font-size:0.75em; color:#78909c;">${totalPlant} auxiliares registrados · ${allStats.LIBRE} libres (${plantNightPct}%)</div>
+        </div>
+
+        <!-- BARRAS HORIZONTALES (activos hoy) -->
+        <div style="background:#fafafa; border:1px solid #e0e0e0; border-radius:10px; padding:16px;">
+            <h4 style="color:#37474f; margin:0 0 14px; font-size:0.83em; text-transform:uppercase; letter-spacing:1px;">Distribución Activos Hoy (${totalActive})</h4>
+            ${Object.entries(CAT_META).map(([cat, m]) => {
+                const count = activeStats[cat] || 0;
+                const pct   = totalActive > 0 ? Math.round((count / totalActive) * 100) : 0;
+                return `
+                <div style="margin-bottom:13px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-size:0.82em; font-weight:600; color:${m.fg};">${m.emoji} ${cat === 'LIBRE' ? 'LIBRE' : cat} — ${m.label}</span>
+                        <span style="font-size:0.82em; color:#546e7a;"><strong style="color:${m.fg};">${count}</strong> trabajador${count !== 1 ? 'es' : ''} · <strong>${pct}%</strong></span>
+                    </div>
+                    <div style="background:#e0e0e0; border-radius:4px; height:20px; overflow:hidden; position:relative;">
+                        <div style="background:${m.fg}; width:${pct}%; height:100%; border-radius:4px; transition:width 0.6s ease; min-width:${count > 0 ? '4px' : '0'};"></div>
+                        ${pct > 12 ? `<span style="position:absolute; left:8px; top:0; line-height:20px; font-size:0.72em; font-weight:700; color:white;">${pct}%</span>` : ''}
+                    </div>
+                </div>`;
+            }).join('')}
+            <div style="margin-top:14px; padding-top:10px; border-top:1px dashed #ccc; display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; font-size:0.82em; color:#37474f;">
+                <span>🌙 Aptos noche: <strong style="color:#2e7d32;">${canNight} (${nightPct}%)</strong></span>
+                <span>🚫 Con restricción: <strong style="color:#c62828;">${cannotNight} (${totalActive > 0 ? 100 - nightPct : 0}%)</strong></span>
+            </div>
+        </div>
+    </div>
+
+    <div style="border-top:1px solid #e0e0e0; margin:0 12px 16px;"></div>
+
+    ${pasilloTableHTML}
+
+    ${onVacation.length > 0 ? '<div style="border-top:1px solid #e0e0e0; margin:0 12px 16px;"></div>' : ''}
+    ${vacTableHTML}
+
+    ${detailHTML}
+    `;
+
+    container.innerHTML = html;
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth' });
+
+    if (typeof Chart !== 'undefined') {
+        const ctx = document.getElementById(chartId);
+        if (ctx) {
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.entries(CAT_META).map(([k, m]) => `${m.emoji} ${k === 'LIBRE' ? 'LIBRE' : k}`),
+                    datasets: [{
+                        data: ['LIBRE','R','RM','SDF'].map(c => allStats[c] || 0),
+                        backgroundColor: ['#2e7d32','#f57f17','#c62828','#1565c0'],
+                        borderColor: '#ffffff',
+                        borderWidth: 3,
+                        hoverOffset: 8
+                    }]
+                },
+                options: {
+                    responsive: false,
+                    cutout: '62%',
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { font: { size: 10 }, padding: 8, boxWidth: 13 }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => {
+                                    const val = ctx.parsed;
+                                    const pct = totalPlant > 0 ? Math.round((val / totalPlant) * 100) : 0;
+                                    return ` ${val} trabajadores (${pct}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
 }
 
 function renderKrebsReport() {
@@ -3854,6 +4282,7 @@ document.addEventListener('DOMContentLoaded', () => {
     attachEvt('staffDistributionBtn', 'click', () => toggleSidebarPanel('staffDistributionBtn', 'staffDistributionContainer', renderStaffDistribution));
     attachEvt('krebsReportBtn',       'click', () => toggleSidebarPanel('krebsReportBtn',       'krebsReportContainer',       renderKrebsReport));
     attachEvt('plantManagerBtn',      'click', () => toggleSidebarPanel('plantManagerBtn',       'plantManagerContainer',       renderPlantManager));
+    attachEvt('plantHealthBtn',       'click', () => toggleSidebarPanel('plantHealthBtn',        'plantHealthContainer',        renderPlantHealthReport));
     attachEvt('tasksReportBtn',       'click', () => toggleSidebarPanel('tasksReportBtn',        'tasksReportContainer',        renderTasksReport));
     attachEvt('equidadBtn',           'click', () => toggleSidebarPanel('equidadBtn',            'equidadReportContainer',      renderEquidadReport));
 
@@ -3903,6 +4332,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderAll();
                 saveAppState();
                 showToast(`Cód. Nómina de ${worker?.fixedData[0] || master?.nombre || ''} actualizado.`, 'success');
+            }
+            if (e.target.classList.contains('plant-equipo-select')) {
+                const newVal = e.target.value.trim().toUpperCase();
+                const master = appState.workerMasterData.find(m => m.id === workerId);
+                if (!master) return;
+                master.equipo = newVal;
+                saveAppState();
+                // Actualizar color del select inmediatamente sin re-renderizar la tabla
+                const equipoColors = {
+                    '':    { bg:'#e8f5e9', color:'#2e7d32', border:'#2e7d32' },
+                    'R':   { bg:'#fff8e1', color:'#f57f17', border:'#f57f17' },
+                    'RM':  { bg:'#fce4ec', color:'#c62828', border:'#c62828' },
+                    'SDF': { bg:'#e3f2fd', color:'#1565c0', border:'#1565c0' },
+                };
+                const ec = equipoColors[newVal] || { bg:'#f5f5f5', color:'#546e7a', border:'#90a4ae' };
+                e.target.style.background    = ec.bg;
+                e.target.style.color         = ec.color;
+                e.target.style.borderColor   = ec.border;
+                // Refrescar informe de salud si está abierto
+                const hc = document.getElementById('plantHealthContainer');
+                if (hc && hc.style.display !== 'none') renderPlantHealthReport();
+                const label = newVal === '' ? 'LIBRE' : newVal;
+                showToast(`Restricción de ${master.nombre} actualizada a ${label}.`, 'success');
             }
         });
     }
