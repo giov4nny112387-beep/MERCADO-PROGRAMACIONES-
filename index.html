@@ -7,6 +7,7 @@
     <script>if (typeof module === 'object') {window.module = module; module = undefined;}</script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script>if (window.module) module = window.module;</script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="style.css">
     <style id="dynamic-styles"></style>
 </head>
@@ -115,6 +116,7 @@
                         <div class="sidebar-group-header">MI PLANTA</div>
                         <div class="sidebar-group-body">
                             <button id="plantManagerBtn" class="sidebar-btn">🏭 Administrar mi Planta</button>
+                            <button id="plantHealthBtn" class="sidebar-btn">🏥 Salud de Auxiliares</button>
                         </div>
                     </div>
 
@@ -206,6 +208,7 @@
 
             <!-- Contenedores -->
             <div id="plantManagerContainer" class="setup-card" style="display:none;"></div>
+            <div id="plantHealthContainer" class="setup-card" style="display:none;"></div>
             <div id="krebsReportContainer" style="display:none;"></div>
             <div id="tasksReportContainer" style="display:none;"></div>
             <div id="equidadReportContainer" style="display:none;"></div>
