@@ -205,6 +205,8 @@ th { background-color: var(--corp-blue); color: #ffffff; position: sticky; top: 
 /* Columnas fijas sticky en tabla de programación */
 .schedule-table th:nth-child(1), .schedule-table td:nth-child(1) { position: sticky; left: 0; z-index: 2; min-width: 170px; }
 .schedule-table th:nth-child(2), .schedule-table td:nth-child(2) { position: sticky; left: 170px; z-index: 2; min-width: 110px; }
+/* Encabezados de fecha: ancho fijo igual que .shift-td */
+.schedule-table th[data-date] { min-width: 72px; width: 72px; max-width: 72px; }
 .schedule-table th:nth-child(1), .schedule-table th:nth-child(2) { z-index: 5; background-color: var(--corp-blue); }
 .schedule-table td:nth-child(1), .schedule-table td:nth-child(2) { background-color: #ffffff; }
 /* Celda EQUIPO — contenedor limpio */
@@ -361,9 +363,56 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 .warning-icon { display: inline-block; margin-left: 5px; font-size: 1.2em; animation: pulse-warning 1s infinite; cursor: help; }
 .count-warning { background-color: #c62828 !important; color: #ffffff !important; font-weight: bold; font-size: 1.2em; }
 
-.shift-select { width: 100%; height: 100%; border: none; background: transparent; -webkit-appearance: none; -moz-appearance: none; appearance: none; padding: 8px; cursor: pointer; font-size: 1em; color: #333333 !important; font-weight: 500;}
+.shift-select { width: 100%; height: 38px; border: none; background: transparent; -webkit-appearance: none; -moz-appearance: none; appearance: none; padding: 0 4px; cursor: pointer; font-size: 0.75em; color: #333333 !important; font-weight: 500; line-height: 38px; }
 .shift-select:focus { outline: 2px solid var(--corp-orange); }
-.shift-ro-text { display: block; padding: 8px; font-size: 1em; font-weight: 500; color: #333333; text-align: center; user-select: none; }
+.shift-ro-text { display: flex; align-items: center; justify-content: center; height: 38px; padding: 0 4px; font-size: 0.75em; font-weight: 500; color: #333333; text-align: center; user-select: none; }
+
+/* ── Barra de herramientas encima de la tabla ── */
+.table-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+/* ── Botón "Solo Letras / Vista Completa" ── */
+.btn-compact-toggle {
+    padding: 6px 14px;
+    border: 2px solid var(--corp-orange);
+    border-radius: 20px;
+    background: #fff;
+    color: var(--corp-orange);
+    font-size: 0.82em;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.18s, color 0.18s;
+    letter-spacing: 0.3px;
+}
+.btn-compact-toggle:hover { background: var(--corp-orange); color: #fff; }
+.btn-compact-toggle.active { background: var(--corp-orange); color: #fff; }
+
+/* ── Vista compacta (solo letras) ── */
+.schedule-table.compact-view th[data-date] { min-width: 28px; width: 30px; max-width: 32px; padding: 3px 1px; font-size: 0.72em; }
+.schedule-table.compact-view td.shift-td   { min-width: 28px; width: 30px; max-width: 32px; padding: 0; }
+.schedule-table.compact-view .shift-ro-text {
+    padding: 5px 1px;
+    font-size: 0.9em;
+    font-weight: 800;
+    letter-spacing: 0;
+}
+.schedule-table.compact-view .shift-select {
+    padding: 5px 1px;
+    font-size: 0.72em;
+    text-align: center;
+    text-align-last: center;
+}
+.schedule-table.compact-view .total-horas-header,
+.schedule-table.compact-view .total-horas-cell { font-size: 0.72em; min-width: 34px; }
+.schedule-table.compact-view .task-add-btn,
+.schedule-table.compact-view .task-badge-cell { display: none; }
 
 .holiday-header { background-color: #b71c1c !important; color: #ffcdd2 !important; }
 .holiday-cell { box-shadow: inset 0 0 0 9999px rgba(183, 28, 28, 0.13) !important; }
@@ -582,15 +631,30 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 @keyframes pulse-warning { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.8; } 100% { transform: scale(1); opacity: 1; } }
 
 /* === Tareas Diarias === */
-.shift-td { position: relative; vertical-align: top; }
+.shift-td {
+    position: relative;
+    vertical-align: middle;
+    min-width: 72px;
+    width: 72px;
+    max-width: 72px;
+    height: 52px;
+    padding: 0 !important;
+    overflow: hidden;
+}
 
 .task-add-btn {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
     display: block; width: 100%; text-align: center;
     font-size: 0.65em; color: #bbb; cursor: pointer;
-    padding: 1px 0; margin-top: 1px; letter-spacing: 0.5px;
-    border-top: 1px dashed #e0e0e0; transition: color 0.15s;
+    padding: 1px 0; letter-spacing: 0.5px;
+    border-top: 1px dashed #e0e0e0;
+    background: rgba(255,255,255,0.88);
+    opacity: 0;
+    transition: opacity 0.18s, color 0.15s;
     user-select: none;
 }
+.shift-td:hover .task-add-btn { opacity: 1; }
 .task-add-btn:hover { color: #f57c00; border-top-color: #f57c00; }
 
 .task-badge-cell {
