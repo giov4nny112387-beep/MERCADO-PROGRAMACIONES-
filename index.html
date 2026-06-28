@@ -291,12 +291,14 @@
             <p style="font-size: 0.9em; color: #666;">Seleccione los turnos que desea transformar.</p>
             <div style="display: flex; gap: 20px; margin-top: 15px;">
                 <div style="flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background: #f9f9f9;">
-                    <label style="display: block; margin-bottom: 10px; color: #d32f2f;"><strong>1. Turnos de Origen:</strong></label>
-                    <div id="originShiftsContainer" style="max-height: 250px; overflow-y: auto; border-top: 1px solid #eee; padding-top: 5px;"></div>
+                    <label style="display: block; margin-bottom: 6px; color: #d32f2f;"><strong>1. Turnos de Origen:</strong></label>
+                    <input type="text" id="originShiftSearch" placeholder="🔍 Buscar turno origen..." oninput="filterOriginShifts(this.value)" style="width:100%;padding:5px 8px;margin-bottom:6px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:0.85em;">
+                    <div id="originShiftsContainer" style="max-height: 230px; overflow-y: auto; border-top: 1px solid #eee; padding-top: 5px;"></div>
                 </div>
                 <div style="flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background: #f0f4f8;">
-                    <label style="display: block; margin-bottom: 10px; color: #1a237e;"><strong>2. Turno Destino:</strong></label>
-                    <select id="toShiftSelect" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px;"></select>
+                    <label style="display: block; margin-bottom: 6px; color: #1a237e;"><strong>2. Turno Destino:</strong></label>
+                    <input type="text" id="toShiftSearch" placeholder="🔍 Buscar turno destino..." oninput="filterDestShifts(this.value)" style="width:100%;padding:5px 8px;margin-bottom:6px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;font-size:0.85em;">
+                    <select id="toShiftSelect" style="width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; height: 210px;" size="8"></select>
                 </div>
             </div>
             <div class="modal-actions">
