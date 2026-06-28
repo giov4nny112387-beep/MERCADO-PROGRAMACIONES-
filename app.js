@@ -56,6 +56,7 @@ const PREDEFINED_TASKS = [
     { id: 9, name: 'Personalizada',          shortName: 'Personalizada', icon: '✏️', color: '#00bcd4', fg: '#ffffff', isEditable: true },
 ];
 let _taskSyncTimer = null;
+let compactShiftView = false;
 let specialShiftFilter = null;
 let selectedMonthsFilter = new Set();
 let _tasksReportTaskFilter  = null; // taskId o null — filtra el informe por tarea
@@ -73,7 +74,39 @@ let shiftOptionsHTML = '';
 const NUM_FIXED_COLUMNS = 3;
 
 // Mapas base
-const masterShiftList =[ '7A6-13', '8A6-14', '7A7-14', '8A7-15', '7A7.3-14.3', '8i7.3-16.3', '7i11-19', '8i11-20', '7C13.3-20.3', '8C13.3-21.3', '7C14.3-21.3', '8C14.3-22.3', '7C15-22', '8C14-22', '7N22-6', '8N22-7', '8N21.3-6.3', '7I10-6', 'COMP', 'LBRE', 'VC', 'LIC', 'INC', 'DF', 'CAP', '0SP' ].filter((v, i, a) => a.indexOf(v) === i);
+const masterShiftList = [
+    // Aperturas (A)
+    '7A5.3-12.3', '6.5A5.3-12',  '8A5.3-13.3',
+    '7A6-13',     '6.5A6-12.3',  '8A6-14',
+    '7A6.3-13.3', '6.5A6.3-13',  '8A6.3-14.3',
+    '7A7-14',     '6.5A7-13.3',  '8A7-15',
+    '7A7.3-14.3', '6.5A7.3-14',
+    '6.5A8-14.3',
+    // Intermedios (i)
+    '6.5i7-14.3',  '7i7-15',       '8i7-16',
+    '8i7.3-16.3',
+    '7i8-16',      '6.5i8-15.3',   '8i8-17',
+    '7i8.3-16.3',  '6.5i8.3-16',   '8i8.3-17.3',
+    '7i9-17',      '6.5i9-16.3',   '8i9-18',
+    '7i9.3-17.3',  '6.5i9.3-17',   '8i9.3-18.3',
+    '7i10-18',     '6.5i10-17.3',  '8i10-19',
+    '7i10.3-18.3', '6.5i10.3-18',  '8i10.3-19.3',
+    '7i11-19',     '6.5i11-18.3',  '8i11-20',
+    '7i11.3-19.3', '6.5i11.3-19',  '8i11.3-20.3',
+    '7i12-20',     '6.5i12-19.3',  '8i12-21',
+    '7i12.3-20.3', '6.5i12.3-20',  '8i12.3-21.3',
+    '6.5i13-20.3',
+    // Cierres (C)
+    '7C13-20',     '6.5C13-19.3',  '8C13-21',
+    '7C13.3-20.3', '6.5C13.3-20',  '8C13.3-21.3',
+    '7C14-21',     '6.5C14-20.3',  '8C14-22',
+    '7C14.3-21.3', '6.5C14.3-21',
+    '8C14.3-22.3', '7C15-22',  '6.5C15-21.3',
+    // Noches (N)
+    '6.5N22-5.3', '7N22-6', '8N22-7', '8N21.3-6.3', '7I10-6',
+    // Especiales
+    'COMP', 'LBRE', 'VC', 'LIC', 'INC', 'DF', 'CAP', '0SP'
+].filter((v, i, a) => a.indexOf(v) === i);
 const csvInputMap = { '1.1': '7A6-13', '2.2': '7C14.3-21.3', '3.3': 'LBRE', '4.4': '7N22-6', '5.5': 'COMP', '0': '0SP' };
 const shift7hTo8hMap = {};
 const shift8hTo7hMap = {};
@@ -161,34 +194,63 @@ function applyMarcacionesMode() {
 }
 
 function initShifts() {
-    const pastelPalette =['#ffe0b2', '#fa9f30', '#bbdefb', '#5582dd', '#eeeeee', '#a8aaac']; 
-    let pIndex = 0;
     masterShiftList.forEach(name => {
         if (allShifts[name]) return;
-        const match = name.match(/^(\d+)/);
-        const hours = match ? parseInt(match[1], 10) : 0;
+        const match = name.match(/^(\d+(?:\.\d+)?)/);
+        const hours = match ? parseFloat(match[1]) : 0;
         const className = `turno-${name.replace(/[^a-zA-Z0-9]/g, '-')}`;
         const isCoverageShift = hours > 0 || name === '0SP';
         allShifts[name] = { name, hours, className, isCoverageShift };
-        
+
         if (name === 'COMP') dynamicStyles += `.${className} { background-color: #f5f5f5; font-weight: bold; color: #1a0067 !important; }\n`;
         else if (name === 'LBRE') dynamicStyles += `.${className} { background-color: #e3f2fd; color: #fd4a03 !important; }\n`;
         else if (name === '0SP') dynamicStyles += `.${className} { background-color: #fefcf9; font-weight: bold; color: #fefafa !important; }\n`;
         else if (name === 'VC') dynamicStyles += `.${className} { background-color: #f86ba3; font-weight: bold; color: #f9f3f3 !important; }\n`;
         else if (name === 'LIC' || name === 'INC' || name === 'CAP' || name === 'DF') dynamicStyles += `.${className} { background-color: #f0ffb2; color: #333 !important; }\n`;
-        else if (hours > 0) { dynamicStyles += `.${className} { background-color: ${pastelPalette[pIndex % pastelPalette.length]}; color: #333 !important; }\n`; pIndex++; }
-        else { dynamicStyles += `.${className} { background-color: #ffffff; color: #333 !important; }\n`; }
+        else if (/^\d+(?:\.\d+)?A/.test(name))  dynamicStyles += `.${className} { background-color: #ffe0b2; color: #5d2e00 !important; }\n`; // Apertura — naranja
+        else if (/^\d+(?:\.\d+)?i/.test(name))  dynamicStyles += `.${className} { background-color: #bbdefb; color: #0d3666 !important; }\n`; // Intermedio — azul
+        else if (/^\d+(?:\.\d+)?C/.test(name))  dynamicStyles += `.${className} { background-color: #c8e6c9; color: #1b5e20 !important; }\n`; // Cierre — verde
+        else if (/^\d+(?:\.\d+)?[NI]/.test(name)) dynamicStyles += `.${className} { background-color: #d1c4e9; color: #311b92 !important; }\n`; // Noche — morado
+        else if (hours > 0) dynamicStyles += `.${className} { background-color: #eeeeee; color: #333 !important; }\n`;
+        else dynamicStyles += `.${className} { background-color: #ffffff; color: #333 !important; }\n`;
     });
     const styleEl = document.getElementById('dynamic-styles');
     if (styleEl) styleEl.textContent = dynamicStyles;
-    shiftOptionsHTML = Object.values(allShifts).map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+    shiftOptionsHTML = _buildShiftOptionsHTML();
+}
+
+function _buildShiftOptionsHTML() {
+    const groups = [
+        { label: '── Aperturas (A) ──', re: /^\d+(?:\.\d+)?A/ },
+        { label: '── Intermedios (I) ──', re: /^\d+(?:\.\d+)?i/ },
+        { label: '── Cierres (C) ──', re: /^\d+(?:\.\d+)?C/ },
+        { label: '── Noches (N) ──', re: /^\d+(?:\.\d+)?[NI]/ },
+    ];
+    const specialNames = new Set(['COMP','LBRE','VC','LIC','INC','DF','CAP','0SP']);
+    const shifts = Object.values(allShifts);
+    const seen = new Set();
+    let html = '';
+    groups.forEach(g => {
+        const items = shifts.filter(s => !seen.has(s.name) && g.re.test(s.name));
+        if (!items.length) return;
+        html += `<optgroup label="${g.label}">`;
+        items.forEach(s => { html += `<option value="${s.name}">${s.name}</option>`; seen.add(s.name); });
+        html += '</optgroup>';
+    });
+    const rest = shifts.filter(s => !seen.has(s.name));
+    if (rest.length) {
+        html += '<optgroup label="── Especiales ──">';
+        rest.forEach(s => { html += `<option value="${s.name}">${s.name}</option>`; seen.add(s.name); });
+        html += '</optgroup>';
+    }
+    return html;
 }
 
 function getColombianHolidays(year) {
     const holidays = new Set(); const formatDate = (date) => date.toISOString().split('T')[0]; const moveToNextMonday = (date) => { const day = date.getDay(); if (day === 1) return date; const offset = day === 0 ? 1 : 8 - day; date.setDate(date.getDate() + offset); return date; };
     const getEaster = (y) => { const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451), month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1; return new Date(y, month - 1, day); };
     const easter = getEaster(year); const addHoliday = (date) => holidays.add(formatDate(date));
-    addHoliday(new Date(year, 0, 1)); addHoliday(new Date(year, 4, 1)); addHoliday(new Date(year, 6, 20)); addHoliday(new Date(year, 7, 7)); addHoliday(new Date(year, 11, 8)); addHoliday(new Date(year, 11, 25));
+    addHoliday(new Date(year, 0, 1)); addHoliday(new Date(year, 4, 1)); addHoliday(new Date(year, 6, 13)); addHoliday(new Date(year, 6, 20)); addHoliday(new Date(year, 7, 7)); addHoliday(new Date(year, 11, 8)); addHoliday(new Date(year, 11, 25));
     addHoliday(moveToNextMonday(new Date(year, 0, 6))); addHoliday(moveToNextMonday(new Date(year, 2, 19))); addHoliday(moveToNextMonday(new Date(year, 5, 29))); addHoliday(moveToNextMonday(new Date(year, 7, 15))); addHoliday(moveToNextMonday(new Date(year, 9, 12))); addHoliday(moveToNextMonday(new Date(year, 10, 1))); addHoliday(moveToNextMonday(new Date(year, 10, 11)));
     const addDays = (date, days) => new Date(date.getTime() + days * 86400000);
     addHoliday(addDays(easter, -3)); addHoliday(addDays(easter, -2)); addHoliday(moveToNextMonday(addDays(easter, 43))); addHoliday(moveToNextMonday(addDays(easter, 64))); addHoliday(moveToNextMonday(addDays(easter, 71)));
@@ -360,6 +422,20 @@ function saveTaskNote(excelId, dateStr, note) {
         delete appState.taskNotes[key];
     }
     scheduleSyncTasks();
+}
+
+function getCompactShiftName(name) {
+    if (!name || name === 'N/A' || name === '0SP') return '';
+    const m = name.match(/^\d+(?:\.\d+)?([ACiNI])/);
+    if (m) return m[1];
+    if (name === 'LBRE') return 'L';
+    if (name === 'COMP') return 'CO';
+    return name; // VC, LIC, INC, DF, CAP ya son cortos
+}
+
+function toggleCompactView() {
+    compactShiftView = !compactShiftView;
+    renderAll();
 }
 
 function taskBadgeStyle(task) {
@@ -602,19 +678,64 @@ function computeAndShowMetrics() {
 function openMassChangeModal() {
     const { dataToRender, visibleDates } = applyAllFilters();
     const originContainer = document.getElementById('originShiftsContainer');
-    const toSelect = document.getElementById('toShiftSelect');
     const detectedShifts = new Set();
     dataToRender.forEach(worker => { visibleDates.forEach(dateStr => { if (worker.dailyData[dateStr]) detectedShifts.add(worker.dailyData[dateStr].name); }); });
-    originContainer.innerHTML = '';[...detectedShifts].sort().forEach(shiftName => {
+    const searchInput = document.getElementById('originShiftSearch');
+    if (searchInput) searchInput.value = '';
+    originContainer.innerHTML = '';
+    [...detectedShifts].sort().forEach(shiftName => {
         const div = document.createElement('div');
-        div.style.padding = '5px'; div.style.borderBottom = '1px solid #eee';
-        div.innerHTML = `<label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: normal; color: #333;"><input type="checkbox" class="origin-shift-check" value="${shiftName}"><span class="turno-${shiftName.replace(/[^a-zA-Z0-9]/g, '-')}" style="padding: 2px 6px; border-radius:3px; color:#333;">${shiftName}</span></label>`;
+        div.style.cssText = 'padding:5px;border-bottom:1px solid #eee;';
+        div.dataset.shift = shiftName.toLowerCase();
+        div.innerHTML = `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;color:#333;"><input type="checkbox" class="origin-shift-check" value="${shiftName}"><span class="turno-${shiftName.replace(/[^a-zA-Z0-9]/g, '-')}" style="padding:2px 6px;border-radius:3px;">${shiftName}</span></label>`;
         originContainer.appendChild(div);
     });
-    toSelect.innerHTML = '<option value="">Seleccione Destino...</option>';
-    Object.keys(allShifts).sort().forEach(name => { toSelect.innerHTML += `<option value="${name}">${name}</option>`; });
+    const destSearch = document.getElementById('toShiftSearch');
+    if (destSearch) destSearch.value = '';
+    _buildDestSelect('');
     document.getElementById('massChangeModal').style.display = 'flex';
     document.getElementById('massChangeMessage').textContent = '';
+}
+
+function _buildDestSelect(query) {
+    const q = (query || '').toLowerCase().trim();
+    const sel = document.getElementById('toShiftSelect');
+    const curVal = sel.value;
+    const groupDefs = [
+        { label: '── Aperturas (A) ──', re: /^\d+(?:\.\d+)?A/ },
+        { label: '── Intermedios (I) ──', re: /^\d+(?:\.\d+)?i/ },
+        { label: '── Cierres (C) ──', re: /^\d+(?:\.\d+)?C/ },
+        { label: '── Noches (N) ──', re: /^\d+(?:\.\d+)?[NI]/ },
+    ];
+    const allNames = masterShiftList;
+    const seen = new Set();
+    let html = '<option value="">Seleccione Destino...</option>';
+    groupDefs.forEach(g => {
+        const items = allNames.filter(n => !seen.has(n) && g.re.test(n) && (!q || n.toLowerCase().includes(q)));
+        if (!items.length) return;
+        html += `<optgroup label="${g.label}">`;
+        items.forEach(n => { html += `<option value="${n}">${n}</option>`; seen.add(n); });
+        html += '</optgroup>';
+    });
+    const rest = allNames.filter(n => !seen.has(n) && (!q || n.toLowerCase().includes(q)));
+    if (rest.length) {
+        html += '<optgroup label="── Especiales ──">';
+        rest.forEach(n => { html += `<option value="${n}">${n}</option>`; });
+        html += '</optgroup>';
+    }
+    sel.innerHTML = html;
+    if (curVal) sel.value = curVal;
+}
+
+function filterOriginShifts(query) {
+    const q = (query || '').toLowerCase();
+    document.querySelectorAll('#originShiftsContainer > div').forEach(div => {
+        div.style.display = !q || (div.dataset.shift || '').includes(q) ? '' : 'none';
+    });
+}
+
+function filterDestShifts(query) {
+    _buildDestSelect(query);
 }
 
 function applyMassChange() {
@@ -799,7 +920,7 @@ function renderScheduleTable(data, visibleDates) {
     const readOnly = currentRole === 'marcaciones' || currentRole === 'vermimalla';
     const visibleWeeks =[]; if (visibleDates.length > 0) { let currentWeek =[]; visibleDates.forEach(dateStr => { currentWeek.push(dateStr); if (new Date(dateStr + 'T00:00:00').getDay() === 0) { visibleWeeks.push(currentWeek); currentWeek =[]; } }); if (currentWeek.length > 0) visibleWeeks.push(currentWeek); }
     const tableTitle = readOnly ? '📅 Horario de Personal' : '📅 Horario de Personal (Editable)';
-    let tableHTML = `<h2 style="color: #1a237e;">${tableTitle}</h2><table class="schedule-table"><thead><tr>`;
+    let tableHTML = `<div class="table-toolbar"><h2 style="color: #1a237e; margin:0;">${tableTitle}</h2><button id="toggleCompactBtn" onclick="toggleCompactView()" class="btn-compact-toggle${compactShiftView ? ' active' : ''}">${compactShiftView ? '📋 Vista Completa' : '🔤 Solo Letras'}</button></div><table class="schedule-table${compactShiftView ? ' compact-view' : ''}"><thead><tr>`;
     appState.fixedHeaders.forEach(h => tableHTML += `<th>${h}</th>`);
     visibleWeeks.forEach((weekDates) => { weekDates.forEach(dateStr => { const isHoliday = appState.holidays.has(dateStr); const dow = new Date(dateStr + 'T00:00:00').getDay(); const thClass = isHoliday ? 'holiday-header' : (dow === 6 ? 'sat-header' : (dow === 0 ? 'sun-header' : '')); tableHTML += `<th class="${thClass}" data-date="${dateStr}">${dayAbbreviations[dow].toUpperCase()}<br>${dateStr.substring(5)}</th>`; }); tableHTML += `<th class="total-horas-header">Total Horas</th>`; });
     tableHTML += '</tr></thead><tbody>';
@@ -855,7 +976,7 @@ function renderScheduleTable(data, visibleDates) {
                     if (cell.hours > 0 && assignedTask) {
                         taskBadgeHTML = `<div class="task-badge-ro" data-excel-id="${excelId}" data-date-str="${dateStr}" title="${assignedTask.name}${hasNote ? ' — 📝 tiene observación' : ''}" style="${taskBadgeStyle(assignedTask)};display:flex;align-items:center;gap:3px;font-size:0.68em;font-weight:700;padding:2px 4px;margin-top:2px;border-radius:3px;cursor:pointer;">${assignedTask.icon} <span>${taskDisplayName(assignedTask, taskKey)}</span>${hasNote ? ' 📝' : ''}</div>`;
                     }
-                    shiftCellContent = `<span class="shift-ro-text">${cell.name !== 'N/A' ? cell.name : ''}</span>${taskBadgeHTML}`;
+                    shiftCellContent = `<span class="shift-ro-text">${cell.name !== 'N/A' ? (compactShiftView ? getCompactShiftName(cell.name) : cell.name) : ''}</span>${taskBadgeHTML}`;
                 } else {
                     let taskHTML = '';
                     if (cell.hours > 0) {
@@ -865,13 +986,18 @@ function renderScheduleTable(data, visibleDates) {
                             taskHTML = `<div class="task-add-btn" data-excel-id="${excelId}" data-date-str="${dateStr}" title="Asignar tarea">+ tarea</div>`;
                         }
                     }
-                    shiftCellContent = `<select class="shift-select" data-worker-id="${rowData.id}" data-date-str="${dateStr}">${shiftOptionsHTML.replace(`value="${cell.name}"`, `value="${cell.name}" selected`)}</select>${moonHTML}${taskHTML}`;
+                    if (compactShiftView) {
+                        const cName = getCompactShiftName(cell.name);
+                        shiftCellContent = `<span class="shift-ro-text shift-compact-edit" onclick="var s=this.nextElementSibling;this.style.display='none';s.style.display='block';s.focus();" title="${cell.name !== 'N/A' ? cell.name : ''}">${cName}</span><select class="shift-select" style="display:none;" data-worker-id="${rowData.id}" data-date-str="${dateStr}">${shiftOptionsHTML.replace(`value="${cell.name}"`, `value="${cell.name}" selected`)}</select>${moonHTML}${taskHTML}`;
+                    } else {
+                        shiftCellContent = `<select class="shift-select" data-worker-id="${rowData.id}" data-date-str="${dateStr}">${shiftOptionsHTML.replace(`value="${cell.name}"`, `value="${cell.name}" selected`)}</select>${moonHTML}${taskHTML}`;
+                    }
                 }
                 const compWarn = compViolationCells.get(rowData.id)?.has(dateStr);
                 const taskBorderStyle = (cell.hours > 0 && assignedTask) ? `border:2px solid ${assignedTask.color};` : '';
                 tableHTML += `<td class="shift-td ${tdClass}${compWarn ? ' comp-missing-cell' : ''}" style="${taskBorderStyle}" data-worker-id="${rowData.id}" data-excel-id="${excelId}" data-date-str="${dateStr}">${shiftCellContent}</td>`;
             });
-            const validHours =[0, 7, 14, 21, 28, 35, 42, 49]; const totalInt = Math.round(weeklyTotal); const isError = !validHours.includes(totalInt);
+            const validHours = [0, 7, 14, 21, 28, 35, 36, 42, 42.5, 48.5, 49]; const totalRounded = Math.round(weeklyTotal * 10) / 10; const isError = !validHours.includes(totalRounded);
             const weekHasCompWarn = compViolationCells.get(rowData.id) && weekDates.some(d => compViolationCells.get(rowData.id).has(d));
             tableHTML += `<td class="total-horas-cell ${isError ? 'hour-error-cell' : ''}">${weeklyTotal}${isError ? ' <span class="warning-icon">⚠️</span>' : ''}${weekHasCompWarn ? ' <span class="warning-icon comp-warn-icon" title="⚠️ Trabajó el domingo anterior y no tiene COMP en esta semana">🔔</span>' : ''}</td>`;
         });
@@ -2751,10 +2877,10 @@ function renderEquidadReport() {
 
     function getShiftCategory(name) {
         if (!name) return null;
-        if (/^\d+A/.test(name)) return 'A';
-        if (/^\d+C/.test(name)) return 'C';
-        if (/^\d+N/.test(name)) return 'N';
-        if (/^\d+I/.test(name)) return 'I';
+        if (/^\d+(?:\.\d+)?A/.test(name))       return 'A';
+        if (/^\d+(?:\.\d+)?C/.test(name))       return 'C';
+        if (/^\d+(?:\.\d+)?N/.test(name))       return 'N';
+        if (/^\d+(?:\.\d+)?[iI]/.test(name))   return 'I';
         if (name === 'VC')   return 'VC';
         if (name === 'LIC')  return 'LIC';
         if (name === 'INC')  return 'INC';
