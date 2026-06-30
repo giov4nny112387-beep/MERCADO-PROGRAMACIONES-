@@ -198,15 +198,29 @@ label { font-weight: bold; margin-bottom: 5px; color: #1a237e; font-size: 0.9em;
     position: relative;
 }
 table { width: 100%; border-collapse: collapse; background-color: #ffffff; color: #333333; }
-th, td { border: 1px solid #ddd; padding: 0; text-align: center; white-space: nowrap; color:#333333; }
+th, td { border: none; border-bottom: 1px solid #eef0f5; padding: 0; text-align: center; white-space: nowrap; color:#333333; }
 th, .fixed-cell { padding: 8px; }
-th { background-color: var(--corp-blue); color: #ffffff; position: sticky; top: 0; z-index: 3;}
+th { background-color: var(--corp-blue); color: #ffffff; position: sticky; top: 0; z-index: 3; }
 
 /* Columnas fijas sticky en tabla de programación */
 .schedule-table th:nth-child(1), .schedule-table td:nth-child(1) { position: sticky; left: 0; z-index: 2; min-width: 170px; }
 .schedule-table th:nth-child(2), .schedule-table td:nth-child(2) { position: sticky; left: 170px; z-index: 2; min-width: 110px; }
 /* Encabezados de fecha: ancho fijo igual que .shift-td */
-.schedule-table th[data-date] { min-width: 72px; width: 72px; max-width: 72px; }
+.schedule-table th[data-date] {
+    min-width: 72px; width: 72px; max-width: 72px;
+    font-size: 0.76em; font-weight: 700; letter-spacing: 0.2px;
+    padding: 6px 4px; border-bottom: 3px solid rgba(255,255,255,0.25);
+}
+/* Hover en filas de trabajador */
+.schedule-table tbody tr:hover .shift-td               { background: #f0f4ff !important; }
+.schedule-table tbody tr:hover td:nth-child(1),
+.schedule-table tbody tr:hover td:nth-child(2),
+.schedule-table tbody tr:hover td:nth-child(3)         { background: #f0f4ff !important; }
+/* Filas alternas */
+.schedule-table tbody tr:nth-child(even) .shift-td     { background: #fafbfe; }
+/* Borde derecho sutil en columna nombre */
+.schedule-table td:nth-child(1) { border-right: 1px solid #e8eaf6; }
+.schedule-table td:nth-child(3) { border-right: 1px solid #eef0f5; font-size: 0.78em; color: #999; }
 .schedule-table th:nth-child(1), .schedule-table th:nth-child(2) { z-index: 5; background-color: var(--corp-blue); }
 .schedule-table td:nth-child(1), .schedule-table td:nth-child(2) { background-color: #ffffff; }
 /* Celda EQUIPO — contenedor limpio */
@@ -357,15 +371,63 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 .summary-table tbody tr:nth-child(even) td:first-child { background-color: #f9f9f9; }
 
 .restriccion-si { background-color: #f8d7da !important; font-weight: bold; color:#333333;} .restriccion-no { background-color: #d4edda !important; color:#333333; }
-.total-horas-header { background-color: var(--corp-orange) !important; color: #ffffff !important; border-left: 2px solid #fff; }
-.total-horas-cell { background-color: #fff3e0 !important; font-weight: bold; font-size: 1.1em; color: #f57c00 !important; border-left: 2px solid #aaa; }
-.hour-error-cell { background-color: #ffebee !important; color: #b71c1c !important; border: 2px solid #ef5350 !important; }
-.warning-icon { display: inline-block; margin-left: 5px; font-size: 1.2em; animation: pulse-warning 1s infinite; cursor: help; }
+/* Total horas — chip moderno */
+.total-horas-header {
+    background: #f5f5f5 !important; color: #555 !important;
+    border-left: 2px solid #e0e0e0 !important; font-size: 0.72em !important;
+    letter-spacing: 0.3px; min-width: 54px;
+}
+.total-horas-cell {
+    background: transparent !important;
+    border-left: 1px solid #eef0f5 !important;
+    padding: 6px 6px !important; vertical-align: middle;
+}
+.hrs-chip {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 44px; padding: 4px 10px; border-radius: 16px;
+    font-size: 0.78em; font-weight: 800;
+    background: #c8e6c9; color: #1b5e20;
+    border: 1.5px solid #388e3c;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+    white-space: nowrap;
+}
+.hour-error-cell { background: transparent !important; border: none !important; }
+.hour-error-cell .hrs-chip {
+    background: #ffcdd2; color: #b71c1c; border-color: #ef5350;
+    animation: pulse-warning 1.5s infinite;
+}
+.warning-icon { display: inline-block; margin-left: 4px; font-size: 0.95em; cursor: help; }
 .count-warning { background-color: #c62828 !important; color: #ffffff !important; font-weight: bold; font-size: 1.2em; }
 
-.shift-select { width: 100%; height: 38px; border: none; background: transparent; -webkit-appearance: none; -moz-appearance: none; appearance: none; padding: 0 4px; cursor: pointer; font-size: 0.75em; color: #333333 !important; font-weight: 500; line-height: 38px; }
-.shift-select:focus { outline: 2px solid var(--corp-orange); }
-.shift-ro-text { display: flex; align-items: center; justify-content: center; height: 38px; padding: 0 4px; font-size: 0.75em; font-weight: 500; color: #333333; text-align: center; user-select: none; }
+/* Chip / píldora de turno — borde a borde con mínimo espacio */
+.shift-select {
+    display: block;
+    width: 100%;
+    margin: 0;
+    height: 34px;
+    border-radius: 14px;
+    border: 1.5px solid #ccc;
+    background: #f5f5f5;
+    -webkit-appearance: none; -moz-appearance: none; appearance: none;
+    padding: 0 4px;
+    cursor: pointer;
+    font-size: 0.63em; font-weight: 700;
+    line-height: 34px; text-align: center;
+    color: #555 !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    transition: box-shadow 0.15s;
+}
+.shift-select:hover { box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+.shift-select:focus { outline: none; box-shadow: 0 0 0 2.5px rgba(245,124,0,0.45); }
+.shift-ro-text {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; margin: 0;
+    height: 34px; border-radius: 14px;
+    border: 1.5px solid #ccc; background: #f5f5f5;
+    font-size: 0.63em; font-weight: 700;
+    color: #555; text-align: center; user-select: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
 
 /* ── Barra de herramientas encima de la tabla ── */
 .table-toolbar {
@@ -396,39 +458,35 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 
 /* ── Vista compacta (solo letras) ── */
 .schedule-table.compact-view th[data-date] { min-width: 28px; width: 30px; max-width: 32px; padding: 3px 1px; font-size: 0.72em; }
-.schedule-table.compact-view td.shift-td   { min-width: 28px; width: 30px; max-width: 32px; padding: 0; }
+.schedule-table.compact-view td.shift-td   { min-width: 28px; width: 30px; max-width: 32px; padding: 2px 1px 0 1px !important; }
 .schedule-table.compact-view .shift-ro-text {
-    padding: 5px 1px;
-    font-size: 0.9em;
-    font-weight: 800;
-    letter-spacing: 0;
+    width: 100%; margin: 0; border-radius: 8px; height: 26px;
+    font-size: 0.78em; font-weight: 800; letter-spacing: 0;
 }
 .schedule-table.compact-view .shift-select {
-    padding: 5px 1px;
-    font-size: 0.72em;
-    text-align: center;
-    text-align-last: center;
+    width: 100%; margin: 0; border-radius: 8px; height: 26px; line-height: 26px;
+    font-size: 0.72em; text-align: center; text-align-last: center;
 }
 .schedule-table.compact-view .total-horas-header,
 .schedule-table.compact-view .total-horas-cell { font-size: 0.72em; min-width: 34px; }
 .schedule-table.compact-view .task-add-btn,
 .schedule-table.compact-view .task-badge-cell { display: none; }
 
-.holiday-header { background-color: #b71c1c !important; color: #ffcdd2 !important; }
-.holiday-cell { box-shadow: inset 0 0 0 9999px rgba(183, 28, 28, 0.13) !important; }
-.holiday-cell .shift-select { color: #c62828 !important; font-weight: bold; }
+.holiday-header { background-color: #b71c1c !important; color: #ffcdd2 !important; border-bottom: 3px solid #ef5350 !important; }
+.holiday-cell { background: #fff8f8 !important; box-shadow: none !important; }
+.holiday-cell .shift-select, .holiday-cell .shift-ro-text { border-color: #ef9a9a !important; color: #c62828 !important; font-weight: 700; }
 .summary-table .holiday-cell { color: #c62828 !important; font-weight: bold; }
 .comp-on-holiday, .comp-on-holiday .shift-select { background-color: #000000 !important; color: #ffffff !important; font-weight: bold; }
 
 /* Advertencia: trabajó domingo sin COMP en la semana siguiente */
-.comp-missing-cell { box-shadow: inset 0 0 0 9999px rgba(230,81,0,0.09) !important; outline: 1.5px dashed #e65100; outline-offset: -2px; }
+.comp-missing-cell { outline: 1.5px dashed #e65100; outline-offset: -2px; }
 .comp-warn-icon { color: #e65100 !important; animation: pulse-warning 1.2s infinite; }
 
 /* Sábados y Domingos */
 .sat-header { background-color: #1e3a6e !important; border-bottom: 3px solid #5c8ad4 !important; }
-.sun-header { background-color: #3b1f6e !important; border-bottom: 3px solid #9575cd !important; }
-.sat-cell { box-shadow: inset 0 0 0 9999px rgba(30, 58, 110, 0.10) !important; }
-.sun-cell { box-shadow: inset 0 0 0 9999px rgba(59, 31, 110, 0.13) !important; }
+.sun-header { background-color: #4a148c !important; border-bottom: 3px solid #9575cd !important; }
+.sat-cell { background: #f3f5fb !important; box-shadow: none !important; }
+.sun-cell { background: #f5f2fb !important; box-shadow: none !important; }
 
 .coverage-analysis-container, .distribution-analysis-container { border: 2px dashed #b0bec5; padding: 15px; border-radius: 8px; background-color: #ffffff; color: #333333; }
 .dist-total-row { background-color: #e8eaf6 !important; font-weight: bold; color: #333333; }
@@ -633,13 +691,16 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 /* === Tareas Diarias === */
 .shift-td {
     position: relative;
-    vertical-align: middle;
+    vertical-align: top;
     min-width: 72px;
     width: 72px;
     max-width: 72px;
     height: 52px;
-    padding: 0 !important;
+    padding: 3px 2px 0 2px !important;
     overflow: hidden;
+    background: #ffffff;
+    border-left: none;
+    transition: background 0.1s;
 }
 
 .task-add-btn {
@@ -658,15 +719,33 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 .task-add-btn:hover { color: #f57c00; border-top-color: #f57c00; }
 
 .task-badge-cell {
-    display: flex; align-items: center; gap: 3px;
-    font-size: 0.68em; font-weight: 700; cursor: pointer;
-    padding: 3px 5px; margin-top: 2px; border-radius: 4px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 2px;
+    font-size: 0.58em; font-weight: 700; cursor: pointer;
+    padding: 0 3px; margin-top: 1px;
+    white-space: nowrap; overflow: hidden;
     transition: opacity 0.15s;
-    /* background and color set inline per task */
+    /* sin fondo de caja — solo etiqueta de texto con ícono */
+    background: transparent !important;
+    color: #333 !important;
+    border: none !important;
+    border-radius: 0 !important;
 }
-.task-badge-cell:hover { opacity: 0.82; }
+.task-badge-cell:hover { opacity: 0.65; }
 .task-badge-cell span { overflow: hidden; text-overflow: ellipsis; }
+
+/* badge solo lectura — sin caja de color, solo etiqueta */
+.task-badge-ro {
+    background: transparent !important;
+    color: #333 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    font-size: 0.58em !important;
+    font-weight: 700 !important;
+    padding: 0 3px !important;
+    margin-top: 1px !important;
+    display: flex; align-items: center; gap: 2px;
+    white-space: nowrap; overflow: hidden;
+}
 
 /* Picker popup */
 #taskPickerPopup {
@@ -820,4 +899,30 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
     letter-spacing: 0.14em; text-transform: uppercase;
     opacity: 0; animation: slIn 0.4s ease forwards; animation-delay: 2s;
     transition: opacity 0.3s;
+}
+
+/* ═══ ESTILOS DE IMPRESIÓN ═══ */
+@media print {
+    /* Forzar colores exactos al imprimir */
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+    /* Ocultar UI innecesaria */
+    .sidebar, .top-bar, .table-toolbar, .task-add-btn,
+    #floatingToolbar, .modal, .splash-overlay { display: none !important; }
+
+    .main-content { margin-left: 0 !important; width: 100% !important; }
+    .output-container { overflow: visible !important; }
+
+    /* Tabla limpia para impresión */
+    .schedule-table th, .schedule-table td {
+        border: 1px solid #ccc !important;
+        border-bottom: 1px solid #ccc !important;
+    }
+    .schedule-table th[data-date] { font-size: 0.7em; padding: 4px 2px; }
+
+    /* Celdas de turno: borde izquierdo visible en papel */
+    .shift-td { border-left: 3px solid transparent; height: 40px; }
+
+    /* Chip de horas */
+    .hrs-chip { box-shadow: none !important; border: 1px solid #bbb !important; }
 }
