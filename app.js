@@ -100,22 +100,35 @@ const masterShiftList = [
     '7C13-20',     '6.5C13-19.3',  '8C13-21',
     '7C13.3-20.3', '6.5C13.3-20',  '8C13.3-21.3',
     '7C14-21',     '6.5C14-20.3',  '8C14-22',
-    '7C14.3-21.3', '6.5C14.3-21',
+    '7C14.3-21.3', '6.5C14.3-21',  '6.5C13-21.3',
     '8C14.3-22.3', '7C15-22',  '6.5C15-21.3',
     // Noches (N)
     '6.5N22-5.3', '7N22-6', '8N22-7', '8N21.3-6.3', '7I10-6',
     // Especiales
     'COMP', 'LBRE', 'VC', 'LIC', 'INC', 'DF', 'CAP', '0SP'
 ].filter((v, i, a) => a.indexOf(v) === i);
-const csvInputMap = { '1.1': '7A6-13', '2.2': '7C14.3-21.3', '3.3': 'LBRE', '4.4': '7N22-6', '5.5': 'COMP', '0': '0SP' };
+const csvInputMap = { '1.1': '6.5A6-12.3', '2.2': '6.5C13-21.3', '3.3': 'LBRE', '4.4': '6.5N22-5.3', '5.5': 'COMP', '0': '0SP' };
 const shift7hTo8hMap = {};
 const shift8hTo7hMap = {};
+
+// Equivalencias del turno base de 6.5h (código 1.1/2.2/4.4) según el día de la semana.
+// La lógica semanal (lunes a domingo) decide si cada día se queda en 6.5h, sube a 8h o pasa a 7h.
+const shift65To7Map = {
+    '6.5A6-12.3':  '7A6-13',
+    '6.5C13-21.3': '7C14.3-21.3',
+    '6.5N22-5.3':  '7N22-6'
+};
+const shift65To8Map = {
+    '6.5A6-12.3':  '8A6-14',
+    '6.5C13-21.3': '8C13.3-21.3',
+    '6.5N22-5.3':  '8N21.3-6.3'
+};
 
 function applyVerMiMallaMode() {
     // Ocultar todo el sidebar excepto info de tienda y logout
     const hideIds = [
         'plantManagerBtn', 'plantHealthBtn', 'coverageBtn', 'distributionBtn', 'staffDistributionBtn',
-        'krebsReportBtn', 'tasksReportBtn', 'correctionBtn', 'seasonBtn', 'massChangeBtn', 'equidadBtn',
+        'krebsReportBtn', 'tasksReportBtn', 'correctionBtn', 'seasonBtn', 'massChangeBtn', 'equidadBtn', 'horasPromedioBtn',
         'sheetsSyncBtn', 'sheetsConfigBtn', 'restoreSessionBtn', 'downloadBtn', 'loadFromProgBtn'
     ];
     hideIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
@@ -161,7 +174,7 @@ function applyMarcacionesMode() {
     // Ocultar herramientas de edición del sidebar
     const hideIds = [
         'plantManagerBtn', 'plantHealthBtn', 'coverageBtn', 'distributionBtn', 'staffDistributionBtn',
-        'krebsReportBtn', 'tasksReportBtn', 'correctionBtn', 'seasonBtn', 'massChangeBtn', 'equidadBtn',
+        'krebsReportBtn', 'tasksReportBtn', 'correctionBtn', 'seasonBtn', 'massChangeBtn', 'equidadBtn', 'horasPromedioBtn',
         'sheetsSyncBtn', 'sheetsConfigBtn', 'restoreSessionBtn'
     ];
     hideIds.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
@@ -202,17 +215,18 @@ function initShifts() {
         const isCoverageShift = hours > 0 || name === '0SP';
         allShifts[name] = { name, hours, className, isCoverageShift };
 
-        if (name === 'COMP') dynamicStyles += `.${className} { background-color: #f5f5f5; font-weight: bold; color: #1a0067 !important; }\n`;
-        else if (name === 'LBRE') dynamicStyles += `.${className} { background-color: #e3f2fd; color: #fd4a03 !important; }\n`;
-        else if (name === '0SP') dynamicStyles += `.${className} { background-color: #fefcf9; font-weight: bold; color: #fefafa !important; }\n`;
-        else if (name === 'VC') dynamicStyles += `.${className} { background-color: #f86ba3; font-weight: bold; color: #f9f3f3 !important; }\n`;
-        else if (name === 'LIC' || name === 'INC' || name === 'CAP' || name === 'DF') dynamicStyles += `.${className} { background-color: #f0ffb2; color: #333 !important; }\n`;
-        else if (/^\d+(?:\.\d+)?A/.test(name))  dynamicStyles += `.${className} { background-color: #ffe0b2; color: #5d2e00 !important; }\n`; // Apertura — naranja
-        else if (/^\d+(?:\.\d+)?i/.test(name))  dynamicStyles += `.${className} { background-color: #bbdefb; color: #0d3666 !important; }\n`; // Intermedio — azul
-        else if (/^\d+(?:\.\d+)?C/.test(name))  dynamicStyles += `.${className} { background-color: #c8e6c9; color: #1b5e20 !important; }\n`; // Cierre — verde
-        else if (/^\d+(?:\.\d+)?[NI]/.test(name)) dynamicStyles += `.${className} { background-color: #d1c4e9; color: #311b92 !important; }\n`; // Noche — morado
-        else if (hours > 0) dynamicStyles += `.${className} { background-color: #eeeeee; color: #333 !important; }\n`;
-        else dynamicStyles += `.${className} { background-color: #ffffff; color: #333 !important; }\n`;
+        // Chip: color va en .shift-select y .shift-ro-text (fondo + borde de categoría)
+        if (name === 'COMP')       dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#f0f0f0 !important; border-color:#9e9e9e !important; color:#1a0067 !important; font-weight:700; }\n`;
+        else if (name === 'LBRE')  dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#fff5f0 !important; border-color:#fd4a03 !important; color:#c62800 !important; font-weight:700; }\n`;
+        else if (name === '0SP')   dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#fafafa !important; border-color:#ddd !important; color:#bbb !important; }\n`;
+        else if (name === 'VC')    dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#fce4ec !important; border-color:#e91e8c !important; color:#880e4f !important; font-weight:700; }\n`;
+        else if (name === 'LIC' || name === 'INC' || name === 'CAP' || name === 'DF') dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#f9fbe7 !important; border-color:#8bc34a !important; color:#33691e !important; font-weight:700; }\n`;
+        else if (/^\d+(?:\.\d+)?A/.test(name))    dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#ffe0b2 !important; border-color:#f57c00 !important; color:#5d2e00 !important; font-weight:700; }\n`; // Apertura — naranja
+        else if (/^\d+(?:\.\d+)?i/.test(name))    dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#bbdefb !important; border-color:#1565c0 !important; color:#0d3666 !important; font-weight:700; }\n`; // Intermedio — azul
+        else if (/^\d+(?:\.\d+)?C/.test(name))    dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#c8e6c9 !important; border-color:#388e3c !important; color:#1b5e20 !important; font-weight:700; }\n`; // Cierre — verde
+        else if (/^\d+(?:\.\d+)?[NI]/.test(name)) dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#d1c4e9 !important; border-color:#6a1b9a !important; color:#311b92 !important; font-weight:700; }\n`; // Noche — morado
+        else if (hours > 0) dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#eeeeee !important; border-color:#bbb !important; color:#555 !important; }\n`;
+        else dynamicStyles += `.${className} .shift-select,.${className} .shift-ro-text { background:#fafafa !important; border-color:#e0e0e0 !important; color:#aaa !important; }\n`;
     });
     const styleEl = document.getElementById('dynamic-styles');
     if (styleEl) styleEl.textContent = dynamicStyles;
@@ -604,46 +618,55 @@ function isPlaceholderWorker(name) {
 }
 
 function applyLegalHours() {
-    const isWorkingShift = (shift) => shift && shift.hours > 0;
+    // Lógica semanal (lunes a domingo) para los turnos base de 6.5h (códigos 1.1/2.2/4.4):
+    // - Si el domingo de la semana es LBRE, todos los demás días de esa semana pasan al equivalente de 7h.
+    // - Si no, sábado y domingo pasan al equivalente de 8h.
+    // - Excepción: si algún día de la semana es feriado, ese día puntual sube a 8h y el sábado
+    //   (cuando el feriado cae en otro día) pasa a 7h en vez de 8h.
+    // - Entre semana, sin feriado, el turno se mantiene en su base de 6.5h.
+    // Siempre se parte de worker.baseShifts (valor original importado) para que la función sea
+    // idempotente sin importar cuántas veces se vuelva a ejecutar al cargar/extender datos.
     appState.weeks.forEach(weekDates => {
-        const holidayInWeek = weekDates.find(d => appState.holidays.has(d) && new Date(d + 'T00:00:00').getDay() !== 0);
-        const saturdayDate = weekDates.find(d => new Date(d + 'T00:00:00').getDay() === 6);
-        const sundayDate = weekDates.find(d => new Date(d + 'T00:00:00').getDay() === 0);
+        const sundayDate    = weekDates.find(d => new Date(d + 'T00:00:00').getDay() === 0);
+        const holidayInWeek = weekDates.some(d => appState.holidays.has(d));
+
         appState.processedData.forEach(worker => {
-            if (worker.isPlaceholder) return;
-            if (holidayInWeek) {
-                const holidayShift = worker.dailyData[holidayInWeek];
-                // IMPORTANTE: Al modificar turnos, conservar el .aisle diario
-                if (isWorkingShift(holidayShift) && shift7hTo8hMap[holidayShift.name]) worker.dailyData[holidayInWeek] = { ...allShifts[shift7hTo8hMap[holidayShift.name]], aisle: holidayShift.aisle };
-                if (saturdayDate) {
-                    const satShift = worker.dailyData[saturdayDate];
-                    if (isWorkingShift(satShift) && shift8hTo7hMap[satShift.name]) worker.dailyData[saturdayDate] = { ...allShifts[shift8hTo7hMap[satShift.name]], aisle: satShift.aisle };
+            if (worker.isPlaceholder || !worker.baseShifts) return;
+            const master  = appState.workerMasterData.find(m => m.id === worker.id);
+            const inicia  = master?.inicia || '';
+            const finaliza = master?.finaliza || '';
+            const sundayIsLBRE = !!(sundayDate && worker.baseShifts[sundayDate] === 'LBRE');
+
+            weekDates.forEach(dateStr => {
+                // Si el día cae en el periodo de vacaciones de la persona, no se toca: debe quedar en VC
+                if (inicia && finaliza && dateStr >= inicia && dateStr <= finaliza) return;
+                // También respeta si la celda ya está marcada como VC manualmente
+                if (worker.dailyData[dateStr]?.name === 'VC') return;
+
+                const baseName = worker.baseShifts[dateStr];
+                if (!shift65To7Map[baseName] && !shift65To8Map[baseName]) return; // solo aplica a turnos base de 6.5h
+
+                const dow = new Date(dateStr + 'T00:00:00').getDay(); // 0=domingo, 6=sábado
+                const isHolidayHere = appState.holidays.has(dateStr);
+                let targetName;
+
+                if (sundayIsLBRE) {
+                    targetName = shift65To7Map[baseName] || baseName;
+                } else if (isHolidayHere) {
+                    targetName = shift65To8Map[baseName] || baseName;
+                } else if (dow === 6) {
+                    targetName = holidayInWeek ? (shift65To7Map[baseName] || baseName) : (shift65To8Map[baseName] || baseName);
+                } else if (dow === 0) {
+                    targetName = shift65To8Map[baseName] || baseName;
+                } else {
+                    targetName = baseName;
                 }
-            } else {
-                if (saturdayDate) {
-                    const satShift = worker.dailyData[saturdayDate];
-                    if (isWorkingShift(satShift) && shift7hTo8hMap[satShift.name]) worker.dailyData[saturdayDate] = { ...allShifts[shift7hTo8hMap[satShift.name]], aisle: satShift.aisle };
+
+                if (targetName && allShifts[targetName]) {
+                    const currentAisle = worker.dailyData[dateStr].aisle;
+                    worker.dailyData[dateStr] = { ...allShifts[targetName], aisle: currentAisle };
                 }
-            }
-            if (sundayDate) {
-                const sunShift = worker.dailyData[sundayDate];
-                if (isWorkingShift(sunShift) && shift7hTo8hMap[sunShift.name]) worker.dailyData[sundayDate] = { ...allShifts[shift7hTo8hMap[sunShift.name]], aisle: sunShift.aisle };
-                if (sunShift && sunShift.name === 'LBRE') {
-                    const sunDateObj = new Date(sundayDate + 'T00:00:00');
-                    const nextWedDate = new Date(sunDateObj); nextWedDate.setDate(sunDateObj.getDate() + 3);
-                    const nextTueDate = new Date(nextWedDate); nextTueDate.setDate(nextTueDate.getDate() - 1);
-                    const wedDateStr = nextWedDate.toISOString().split('T')[0];
-                    const tueDateStr = nextTueDate.toISOString().split('T')[0];
-                    if (worker.dailyData[wedDateStr]) {
-                        const wedShift = worker.dailyData[wedDateStr];
-                        if (isWorkingShift(wedShift) && shift7hTo8hMap[wedShift.name]) worker.dailyData[wedDateStr] = { ...allShifts[shift7hTo8hMap[wedShift.name]], aisle: wedShift.aisle };
-                        else if (worker.dailyData[tueDateStr]) {
-                            const tueShift = worker.dailyData[tueDateStr];
-                            if (isWorkingShift(tueShift) && shift7hTo8hMap[tueShift.name]) worker.dailyData[tueDateStr] = { ...allShifts[shift7hTo8hMap[tueShift.name]], aisle: tueShift.aisle };
-                        }
-                    }
-                }
-            }
+            });
         });
     });
 }
@@ -999,7 +1022,7 @@ function renderScheduleTable(data, visibleDates) {
             });
             const validHours = [0, 7, 14, 21, 28, 35, 36, 42, 42.5, 48.5, 49]; const totalRounded = Math.round(weeklyTotal * 10) / 10; const isError = !validHours.includes(totalRounded);
             const weekHasCompWarn = compViolationCells.get(rowData.id) && weekDates.some(d => compViolationCells.get(rowData.id).has(d));
-            tableHTML += `<td class="total-horas-cell ${isError ? 'hour-error-cell' : ''}">${weeklyTotal}${isError ? ' <span class="warning-icon">⚠️</span>' : ''}${weekHasCompWarn ? ' <span class="warning-icon comp-warn-icon" title="⚠️ Trabajó el domingo anterior y no tiene COMP en esta semana">🔔</span>' : ''}</td>`;
+            tableHTML += `<td class="total-horas-cell ${isError ? 'hour-error-cell' : ''}"><span class="hrs-chip">${weeklyTotal}${isError ? ' ⚠️' : ''}${weekHasCompWarn ? ' <span class="comp-warn-icon" title="⚠️ Trabajó el domingo anterior y no tiene COMP en esta semana">🔔</span>' : ''}</span></td>`;
         });
         tableHTML += '</tr>';
     });
@@ -1064,26 +1087,30 @@ function printSchedulePDF() {
     });
     thead += '</tr>';
 
-    // ── shift color helper (print only) ─────────────────────────────
+    // ── shift color helper (print only) — sin negrita, bordes suaves ─
     function getPrintShiftStyle(name, special) {
-        if (!name) return { bg: 'background:#ffffff', fg: 'color:#111' };
-        if (name === 'COMP')  return { bg: 'background:#ffffff', fg: 'color:#2e7d32;font-weight:700' };
-        if (name === 'LBRE')  return { bg: 'background:#ffffff', fg: 'color:#c62828;font-weight:700' };
-        if (name === 'VC')    return { bg: 'background:#e91e63', fg: 'color:#ffffff;font-weight:700' };
-        if (/^(INC|LIC)/.test(name)) return { bg: 'background:#f0f4c3', fg: 'color:#33691e' };
-        if (/^\d+A/.test(name)) return special
-            ? { bg: 'background:#ffb74d', fg: 'color:#111' }
-            : { bg: 'background:#ffe0b2', fg: 'color:#111' };
-        if (/^\d+C/.test(name)) return special
-            ? { bg: 'background:#e0e0e0', fg: 'color:#111' }
-            : { bg: 'background:#f5f5f5', fg: 'color:#111' };
-        if (/^\d+N/.test(name)) return special
-            ? { bg: 'background:#64b5f6', fg: 'color:#111' }
-            : { bg: 'background:#bbdefb', fg: 'color:#111' };
-        if (/^\d+I/.test(name)) return special
-            ? { bg: 'background:#e0e0e0', fg: 'color:#111' }
-            : { bg: 'background:#f5f5f5', fg: 'color:#111' };
-        return { bg: 'background:#f0f4c3', fg: 'color:#33691e' };
+        if (!name) return { bg: 'background:#fff', fg: 'color:#ccc', bdr: 'border:0.2pt solid #eee' };
+        if (name === 'COMP') return { bg: 'background:#f0f0f0', fg: 'color:#1a0067', bdr: 'border:0.2pt solid #c0c0c0' };
+        if (name === 'LBRE') return { bg: 'background:#fff5f0', fg: 'color:#c62800', bdr: 'border:0.2pt solid #fd8060' };
+        if (name === 'VC')   return { bg: 'background:#fce4ec', fg: 'color:#880e4f', bdr: 'border:0.2pt solid #f48fb1' };
+        if (/^(INC|LIC|DF|CAP)/.test(name)) return { bg: 'background:#f9fbe7', fg: 'color:#33691e', bdr: 'border:0.2pt solid #aed581' };
+        // Aperturas (A) — naranja
+        if (/^\d+(?:\.\d+)?A/.test(name)) return special
+            ? { bg: 'background:#ffcc80', fg: 'color:#4e1f00', bdr: 'border:0.2pt solid #fb8c00' }
+            : { bg: 'background:#ffe0b2', fg: 'color:#5d2e00', bdr: 'border:0.2pt solid #ffb74d' };
+        // Cierres (C) — verde
+        if (/^\d+(?:\.\d+)?C/.test(name)) return special
+            ? { bg: 'background:#a5d6a7', fg: 'color:#1b3a1c', bdr: 'border:0.2pt solid #66bb6a' }
+            : { bg: 'background:#c8e6c9', fg: 'color:#1b5e20', bdr: 'border:0.2pt solid #81c784' };
+        // Intermedios (i) — azul
+        if (/^\d+(?:\.\d+)?[iI]/.test(name)) return special
+            ? { bg: 'background:#90caf9', fg: 'color:#0a2744', bdr: 'border:0.2pt solid #42a5f5' }
+            : { bg: 'background:#bbdefb', fg: 'color:#0d3666', bdr: 'border:0.2pt solid #64b5f6' };
+        // Noches (N) — morado
+        if (/^\d+(?:\.\d+)?N/.test(name)) return special
+            ? { bg: 'background:#ce93d8', fg: 'color:#1a0033', bdr: 'border:0.2pt solid #ab47bc' }
+            : { bg: 'background:#d1c4e9', fg: 'color:#311b92', bdr: 'border:0.2pt solid #b39ddb' };
+        return { bg: 'background:#f5f5f5', fg: 'color:#555', bdr: 'border:0.2pt solid #ccc' };
     }
 
     // ── tbody ────────────────────────────────────────────────────────
@@ -1108,11 +1135,11 @@ function printSchedulePDF() {
             const excelId = rowData.workerExcelId || String(rowData.id);
             const assignedTask = appState.dailyTasks[`${excelId}_${dateStr}`];
             const shiftStyle = getPrintShiftStyle(shiftName, isSpecialDay);
+            const taskFg = assignedTask?.fg || '#ffffff';
             const taskInner = (cell.hours > 0 && assignedTask)
-                ? `<span style="${taskBadgeStyle(assignedTask)};overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;justify-content:center;height:100%;width:100%;font-weight:700;">${assignedTask.icon}&nbsp;${taskDisplayName(assignedTask, `${excelId}_${dateStr}`)}</span>`
+                ? `<span style="background:${assignedTask.color};color:${taskFg};border-radius:3pt;padding:0.5pt 2.5pt;font-size:2.7pt;font-weight:500;display:inline-flex;align-items:center;gap:0.5pt;white-space:nowrap;overflow:hidden;max-width:98%;letter-spacing:0.1pt;">${assignedTask.icon} ${taskDisplayName(assignedTask, `${excelId}_${dateStr}`)}</span>`
                 : '';
-            const printTaskBorder = (cell.hours > 0 && assignedTask) ? `border:1.5pt solid ${assignedTask.color};` : '';
-            tbody += `<td class="td-shift" style="${printTaskBorder}"><div class="ci"><div class="st" style="${shiftStyle.bg};${shiftStyle.fg}">${shiftName}</div><div class="tk">${taskInner}</div></div></td>`;
+            tbody += `<td class="td-shift"><div class="ci"><div class="st"><span class="sc" style="${shiftStyle.bg};${shiftStyle.fg};${shiftStyle.bdr}">${shiftName}</span></div><div class="tk">${taskInner}</div></div></td>`;
         });
         tbody += '</tr>';
     });
@@ -1128,36 +1155,38 @@ function printSchedulePDF() {
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 @page{size:landscape;margin:3mm;}
-html,body{width:100%;background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+html,body{width:100%;background:#fff;color:#333;font-family:'Segoe UI',Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-weight:400;}
 /* Page header */
-.ph{display:flex;justify-content:space-between;align-items:flex-end;height:5mm;padding-bottom:0.5mm;margin-bottom:1.5mm;border-bottom:1.5pt solid #1a237e;}
-.pt{font-size:9pt;font-weight:900;color:#1a237e;letter-spacing:.8px;line-height:1;}
-.pm{font-size:6.5pt;color:#555;font-weight:600;}
-.pd{font-size:4.5pt;color:#aaa;}
-/* Table */
+.ph{display:flex;justify-content:space-between;align-items:flex-end;height:5mm;padding-bottom:0.5mm;margin-bottom:1.5mm;border-bottom:0.8pt solid #3949ab;}
+.pt{font-size:8.5pt;font-weight:600;color:#1a237e;letter-spacing:.5px;line-height:1;}
+.pm{font-size:6pt;color:#666;font-weight:400;}
+.pd{font-size:4pt;color:#bbb;}
+/* Table — bordes muy suaves */
 table{width:100%;border-collapse:collapse;table-layout:fixed;}
 thead tr{height:5mm;}
-th,td{border:.3pt solid #bbb;padding:0;overflow:hidden;}
-/* Fixed name column — no separate equipo column */
-.th-fixed,.td-fixed{background:#eceff1!important;font-weight:700;vertical-align:middle;}
-.th-name{width:22mm;min-width:22mm;max-width:22mm;text-align:left;padding:1px 2px;font-size:5pt;vertical-align:middle;}
+th,td{border:.15pt solid #ddd;padding:0;overflow:hidden;}
+/* Columna de nombre */
+.th-fixed,.td-fixed{background:#f8f9fc!important;font-weight:500;vertical-align:middle;}
+.th-name{width:22mm;min-width:22mm;max-width:22mm;text-align:left;padding:1px 2px;font-size:4.5pt;vertical-align:middle;color:#444;}
 .td-name{width:22mm;min-width:22mm;max-width:22mm;vertical-align:middle;padding:1px 2px;}
-/* name-wrap: stacks worker name above aisle badge */
 .nw{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:0.8px;width:100%;height:100%;}
-.wn{font-size:4pt;font-weight:600;line-height:1.1;word-break:break-word;white-space:normal;width:100%;overflow:hidden;}
-.ab{font-size:3.5pt;font-weight:700;padding:0.5px 2px;border-radius:20pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:inline-block;line-height:1.4;}
-/* Date headers */
-.th-date{text-align:center;font-size:4pt;background:#1a237e!important;color:#fff!important;font-weight:700;line-height:1.2;padding:1px 0;vertical-align:middle;}
-.hdr-sat{background:#4a148c!important;}
-.hdr-sun{background:#b71c1c!important;}
-.hdr-holiday{background:#e65100!important;}
-/* Shift cells — position:relative so .ci can be absolute and fill 100% height */
-.td-shift{padding:0;position:relative;vertical-align:top;text-align:center;}
-/* .ci: explicit heights — shift area reduced 10%, task area unchanged */
+.wn{font-size:3.8pt;font-weight:500;line-height:1.1;word-break:break-word;white-space:normal;width:100%;overflow:hidden;color:#222;}
+.ab{font-size:3pt;font-weight:500;padding:0.5px 3px;border-radius:20pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:inline-block;line-height:1.5;}
+/* Encabezados de fecha — elegantes, sin negrita marcada */
+.th-date{text-align:center;font-size:3.8pt;background:#3949ab!important;color:#e8eaf6!important;font-weight:500;line-height:1.3;padding:1px 0;vertical-align:middle;letter-spacing:0.2px;}
+.hdr-sat{background:#4a148c!important;color:#ede7f6!important;}
+.hdr-sun{background:#4a148c!important;color:#ede7f6!important;}
+.hdr-holiday{background:#b71c1c!important;color:#ffcdd2!important;}
+/* Celdas de turno */
+.td-shift{padding:0;position:relative;vertical-align:top;text-align:center;background:#fff;}
 .ci{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;}
-.st{height:${SHIFT_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:3.6pt;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:clip;}
-.tk{height:${TASK_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;font-size:3pt;font-weight:700;white-space:nowrap;overflow:hidden;padding:0 1px;}
-/* Dynamic shift colours from app */
+/* .st: wrapper — chip borde a borde con mínimo margen (1pt cada lado) */
+.st{height:${SHIFT_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;padding:0.5pt 1pt;}
+/* .sc: chip/píldora igual que la web — sin negrita, bordes suaves */
+.sc{display:inline-flex;align-items:center;justify-content:center;width:calc(100% - 0pt);border-radius:4pt;font-size:3.06pt;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0.8pt 1pt;line-height:1.1;}
+/* .tk: contenedor de badge de tarea */
+.tk{height:${TASK_H_MM}mm;flex:none;display:flex;align-items:center;justify-content:center;padding:0 0.8pt;background:transparent;overflow:hidden;}
+/* Dynamic shift colours */
 ${dynamicShiftStyles}
 </style>
 </head>
@@ -1606,6 +1635,7 @@ function reapplyWorkerVacation(worker) {
             ? { ...allShifts['VC'], aisle: currentAisle }
             : { ...baseShift, aisle: currentAisle };
     });
+    applyLegalHours();
 }
 
 function applyPendingSwaps(effectiveDateStr) {
@@ -1933,6 +1963,7 @@ function updateWorkerVacation(workerId, newInicia, newFinaliza) {
         const inVacation = newInicia && newFinaliza && dateStr >= newInicia && dateStr <= newFinaliza;
         worker.dailyData[dateStr] = inVacation ? { ...allShifts['VC'], aisle: currentAisle } : { ...baseShift, aisle: currentAisle };
     });
+    applyLegalHours();
     const masterEntry = appState.workerMasterData.find(m => m.id === workerId);
     if (masterEntry) { masterEntry.inicia = newInicia; masterEntry.finaliza = newFinaliza; }
     renderAll();
@@ -2611,6 +2642,463 @@ function renderPlantHealthReport() {
             });
         }
     }
+}
+
+function toggleHorasDetalle(rowEl, workerNombre) {
+    const NON_WORKING = new Set(['COMP','LBRE','VC','LIC','INC','DF','CAP','0SP']);
+    const DAY_NAMES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const container  = document.getElementById('horasPromedioContainer');
+    const icon = rowEl.querySelector('.hp-toggle-icon');
+
+    // Cerrar detalle existente
+    const prev = container.querySelector('.hp-detail-row');
+    const prevRow = container.querySelector('.hp-worker-row.hp-active');
+    if (prevRow) {
+        prevRow.classList.remove('hp-active');
+        prevRow.style.background = '';
+        const prevIcon = prevRow.querySelector('.hp-toggle-icon');
+        if (prevIcon) prevIcon.textContent = '▶';
+    }
+    if (prev) {
+        const isSame = prev.dataset.worker === workerNombre;
+        prev.remove();
+        if (isSame) return;  // toggle off
+    }
+
+    // Marcar fila activa
+    rowEl.classList.add('hp-active');
+    rowEl.style.background = '#e8eaf6';
+    if (icon) icon.textContent = '▼';
+
+    // Buscar trabajador
+    const worker = appState.processedData.find(w => w.fixedData[0] === workerNombre);
+    if (!worker) return;
+
+    // Fechas filtradas según estado actual del contenedor
+    const selectedMonth = container.dataset.selectedMonth ?? '';
+    const filteredDates = selectedMonth
+        ? appState.dateHeaders.filter(d => d.startsWith(selectedMonth))
+        : appState.dateHeaders;
+    if (!filteredDates.length) return;
+
+    // Expandir rango a semanas completas (lunes→domingo)
+    const toDate = s => new Date(s + 'T00:00:00');
+    const toStr  = d => d.toISOString().substring(0, 10);
+    const firstDt = toDate(filteredDates[0]);
+    const lastDt  = toDate(filteredDates[filteredDates.length - 1]);
+    const fdow = firstDt.getDay();
+    const rangeStart = new Date(firstDt);
+    rangeStart.setDate(firstDt.getDate() - (fdow === 0 ? 6 : fdow - 1));
+    const ldow = lastDt.getDay();
+    const rangeEnd = new Date(lastDt);
+    rangeEnd.setDate(lastDt.getDate() + (ldow === 0 ? 0 : 7 - ldow));
+
+    // Categoría y colores por turno
+    function catInfo(name) {
+        if (!name || name === 'N/A') return { label: '—',    bg: '#f5f5f5', color: '#999',    fw: '400' };
+        if (name === 'COMP')         return { label: 'COMP', bg: '#f5f5f5', color: '#1a0067', fw: '700' };
+        if (name === 'LBRE')         return { label: 'LBRE', bg: '#e3f2fd', color: '#c62828', fw: '700' };
+        if (name === 'VC')           return { label: 'VC',   bg: '#fce4ec', color: '#d81b60', fw: '700' };
+        if (/^(LIC|INC|DF|CAP)/.test(name)) return { label: name, bg: '#f0f4c3', color: '#33691e', fw: '700' };
+        if (/^\d+(?:\.\d+)?A/.test(name))   return { label: 'APE', bg: '#ffe0b2', color: '#5d2e00', fw: '700' };
+        if (/^\d+(?:\.\d+)?C/.test(name))   return { label: 'CIE', bg: '#c8e6c9', color: '#1b5e20', fw: '700' };
+        if (/^\d+(?:\.\d+)?[iI]/.test(name))return { label: 'INT', bg: '#bbdefb', color: '#0d3666', fw: '700' };
+        if (/^\d+(?:\.\d+)?N/.test(name))   return { label: 'NOC', bg: '#d1c4e9', color: '#311b92', fw: '700' };
+        return { label: '?', bg: '#eeeeee', color: '#555', fw: '400' };
+    }
+
+    // Construir semanas
+    let html = `<div style="padding:12px 16px;background:#f0f4ff;border-top:2px solid #3949ab;">
+        <div style="font-weight:700;color:#1a237e;margin-bottom:10px;font-size:0.92em;">
+            📅 Detalle día a día — <span style="color:#3949ab;">${workerNombre}</span>
+            ${selectedMonth ? `<span style="color:#666;font-weight:400;margin-left:8px;">${(()=>{const[yr,mo]=selectedMonth.split('-');return MONTH_NAMES_ES[parseInt(mo)-1]+' '+yr;})()}</span>` : ''}
+        </div>`;
+
+    const cur = new Date(rangeStart);
+    let grandTotal = 0, grandDays = 0, weekNum = 0;
+
+    while (cur <= rangeEnd) {
+        weekNum++;
+        const weekLabel = `${toStr(cur)} → ${toStr(new Date(cur.getTime() + 6*86400000))}`;
+        let weekTotal = 0, weekWorkedDays = 0;
+        let daysHtml = '';
+
+        for (let i = 0; i < 7; i++) {
+            const day = new Date(cur); day.setDate(cur.getDate() + i);
+            const ds  = toStr(day);
+            const dow = day.getDay();
+            const shift = worker.dailyData[ds];
+            const name  = shift?.name || '—';
+            const hrs   = (!shift || NON_WORKING.has(name) || name === 'N/A') ? 0 : Number(shift.hours || 0);
+            const inFilter = filteredDates.includes(ds);
+            const ci = catInfo(name);
+
+            if (hrs > 0) { weekTotal += hrs; weekWorkedDays++; grandTotal += hrs; grandDays++; }
+
+            const isWeekend = dow === 0 || dow === 6;
+            const outsideFilter = !inFilter;
+            const rowStyle = outsideFilter
+                ? 'opacity:0.45;font-style:italic;'
+                : (isWeekend ? 'background:#f3f4f6;' : '');
+
+            daysHtml += `<tr style="${rowStyle}border-bottom:1px solid #e8eaf6;">
+                <td style="padding:3px 8px;color:#555;font-size:0.82em;white-space:nowrap;">${DAY_NAMES[dow]}</td>
+                <td style="padding:3px 8px;color:#333;font-size:0.82em;">${ds}${outsideFilter ? ' <span style="font-size:0.75em;color:#bbb;">(ext.)</span>' : ''}</td>
+                <td style="padding:3px 8px;">
+                    <span style="background:${ci.bg};color:${ci.color};font-weight:${ci.fw};padding:1px 6px;border-radius:4px;font-size:0.8em;">${name !== 'N/A' ? name : '—'}</span>
+                </td>
+                <td style="padding:3px 8px;text-align:center;">
+                    <span style="background:${ci.bg};color:${ci.color};font-weight:${ci.fw};padding:1px 8px;border-radius:4px;font-size:0.82em;">${ci.label}</span>
+                </td>
+                <td style="padding:3px 8px;text-align:right;font-weight:700;color:${hrs>0?'#1565c0':'#bbb'};font-size:0.85em;">${hrs > 0 ? hrs + 'h' : '—'}</td>
+            </tr>`;
+        }
+
+        html += `<div style="margin-bottom:10px;border:1px solid #c5cae9;border-radius:6px;overflow:hidden;">
+            <div style="background:#3949ab;color:#fff;padding:5px 10px;font-size:0.78em;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
+                <span>Semana ${weekNum} &nbsp;·&nbsp; ${weekLabel}</span>
+                <span style="background:rgba(255,255,255,0.18);border-radius:4px;padding:2px 8px;">
+                    ${weekWorkedDays} días · <strong>${weekTotal.toFixed(1)}h</strong>
+                    ${weekWorkedDays > 0 ? `<span style="opacity:0.8;font-weight:400;"> (prom ${(weekTotal/weekWorkedDays).toFixed(1)}h/día)</span>` : ''}
+                </span>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.84em;background:#fff;">
+                <thead><tr style="background:#e8eaf6;font-size:0.78em;color:#555;">
+                    <th style="padding:3px 8px;text-align:left;font-weight:600;">Día</th>
+                    <th style="padding:3px 8px;text-align:left;font-weight:600;">Fecha</th>
+                    <th style="padding:3px 8px;text-align:left;font-weight:600;">Turno</th>
+                    <th style="padding:3px 8px;text-align:left;font-weight:600;">Tipo</th>
+                    <th style="padding:3px 8px;text-align:right;font-weight:600;">Horas</th>
+                </tr></thead>
+                <tbody>${daysHtml}</tbody>
+            </table>
+        </div>`;
+
+        cur.setDate(cur.getDate() + 7);
+    }
+
+    // Totales finales
+    html += `<div style="background:#1a237e;color:#fff;border-radius:6px;padding:8px 14px;display:flex;gap:24px;flex-wrap:wrap;font-size:0.85em;margin-top:4px;">
+        <span>📊 <strong>${grandDays}</strong> días trabajados</span>
+        <span>⏱️ <strong>${grandTotal.toFixed(1)}h</strong> totales</span>
+        <span>📈 Prom/día: <strong>${grandDays>0?(grandTotal/grandDays).toFixed(1):0}h</strong></span>
+        <span>📅 Prom/semana: <strong>${weekNum>0?(grandTotal/weekNum).toFixed(1):0}h</strong></span>
+    </div></div>`;
+
+    // Insertar fila de detalle después de la fila del trabajador
+    const detailTr = document.createElement('tr');
+    detailTr.className = 'hp-detail-row';
+    detailTr.dataset.worker = workerNombre;
+    detailTr.innerHTML = `<td colspan="15" style="padding:0;">${html}</td>`;
+    rowEl.insertAdjacentElement('afterend', detailTr);
+    detailTr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderHorasPromedioReport() {
+    const container = document.getElementById('horasPromedioContainer');
+    if (!container) return;
+
+    const NON_WORKING = new Set(['COMP','LBRE','VC','LIC','INC','DF','CAP','0SP']);
+    const workers = appState.processedData.filter(w => !w.isPlaceholder);
+    const closeBtnHtml = `<button onclick="document.getElementById('horasPromedioContainer').style.display='none';document.getElementById('horasPromedioBtn')?.classList.remove('sidebar-btn--active');" class="btn-danger" style="padding:5px 15px;font-size:0.9em;">Cerrar</button>`;
+
+    if (!workers.length) {
+        container.innerHTML = `<div style="padding:20px;"><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px dashed #b0bec5;padding-bottom:12px;margin-bottom:15px;"><h3 style="margin:0;color:#1a237e;">⏱️ Promedio de Horas por Auxiliar</h3>${closeBtnHtml}</div><p style="color:#999;text-align:center;padding:30px;">No hay datos cargados.</p></div>`;
+        container.style.display = 'block'; container.scrollIntoView({ behavior: 'smooth' }); return;
+    }
+
+    const monthsSet = new Set();
+    appState.dateHeaders.forEach(d => monthsSet.add(d.substring(0, 7)));
+    const months = ['', ...Array.from(monthsSet).sort()];
+
+    const selectedMonth  = container.dataset.selectedMonth  ?? '';
+    const selectedPasillo = container.dataset.selectedPasillo ?? '';
+    const searchText     = container.dataset.searchText     ?? '';
+    const sortCol        = container.dataset.sortCol        || 'totalHours';
+    const sortDir        = container.dataset.sortDir        || 'desc';
+
+    const filteredDates = selectedMonth
+        ? appState.dateHeaders.filter(d => d.startsWith(selectedMonth))
+        : appState.dateHeaders;
+
+    const pasillos = ['', ...new Set(workers.map(w => w.fixedData[1]).filter(Boolean))].sort();
+
+    // ── Por trabajador ──
+    const workerStats = workers.map(w => {
+        if (selectedPasillo && w.fixedData[1] !== selectedPasillo) return null;
+        if (searchText && !w.fixedData[0]?.toLowerCase().includes(searchText.toLowerCase())) return null;
+
+        let totalHours = 0, workedDays = 0;
+        let compDays = 0, lbreDays = 0, vcDays = 0, licDays = 0, incDays = 0, otherDays = 0;
+        let daysA = 0, daysC = 0, daysI = 0, daysN = 0;
+        const monthMap = {};
+
+        filteredDates.forEach(d => {
+            const shift = w.dailyData[d]; if (!shift || shift.name === 'N/A') return;
+            const name = shift.name; const hrs = Number(shift.hours || 0);
+
+            if      (name === 'COMP') { compDays++; }
+            else if (name === 'LBRE') { lbreDays++; }
+            else if (name === 'VC')   { vcDays++; }
+            else if (name === 'LIC')  { licDays++; }
+            else if (name === 'INC')  { incDays++; }
+            else if (['DF','CAP','0SP'].includes(name)) { otherDays++; }
+            else if (hrs > 0) {
+                totalHours += hrs; workedDays++;
+                if      (/^\d+(?:\.\d+)?A/.test(name))    daysA++;
+                else if (/^\d+(?:\.\d+)?C/.test(name))    daysC++;
+                else if (/^\d+(?:\.\d+)?[iI]/.test(name)) daysI++;
+                else if (/^\d+(?:\.\d+)?[NI]/.test(name)) daysN++;
+                // Agrupar mes
+                const mk = d.substring(0, 7);
+                monthMap[mk] = (monthMap[mk] || 0) + hrs;
+            }
+        });
+
+        // ── Promedio semanal: semanas completas lunes→domingo ──
+        // Expandir el rango al lunes de la primera semana y al domingo de la última
+        const weekVals = [];
+        if (filteredDates.length > 0) {
+            const toDate = s => new Date(s + 'T00:00:00');
+            const toStr  = d => d.toISOString().substring(0, 10);
+            const firstDt = toDate(filteredDates[0]);
+            const lastDt  = toDate(filteredDates[filteredDates.length - 1]);
+            // Lunes de la primera semana
+            const fdow = firstDt.getDay();
+            const rangeStart = new Date(firstDt);
+            rangeStart.setDate(firstDt.getDate() - (fdow === 0 ? 6 : fdow - 1));
+            // Domingo de la última semana
+            const ldow = lastDt.getDay();
+            const rangeEnd = new Date(lastDt);
+            rangeEnd.setDate(lastDt.getDate() + (ldow === 0 ? 0 : 7 - ldow));
+            // Recorrer semana a semana usando dailyData completo
+            const cur = new Date(rangeStart);
+            while (cur <= rangeEnd) {
+                let wkHrs = 0;
+                for (let i = 0; i < 7; i++) {
+                    const day = new Date(cur); day.setDate(cur.getDate() + i);
+                    const ds = toStr(day);
+                    const s  = w.dailyData[ds];
+                    if (s && !NON_WORKING.has(s.name) && Number(s.hours) > 0) wkHrs += Number(s.hours);
+                }
+                weekVals.push(wkHrs);
+                cur.setDate(cur.getDate() + 7);
+            }
+        }
+
+        const monthVals   = Object.values(monthMap);
+        const avgPerDay   = workedDays > 0 ? totalHours / workedDays : 0;
+        const avgPerWeek  = weekVals.length > 0 ? weekVals.reduce((a,b)=>a+b,0) / weekVals.length : 0;
+        const avgPerMonth = monthVals.length > 0 ? monthVals.reduce((a,b)=>a+b,0) / monthVals.length : 0;
+        const maxWeek     = weekVals.length > 0 ? Math.max(...weekVals) : 0;
+        const minWeek     = weekVals.length > 0 ? Math.min(...weekVals) : 0;
+        const weeksCount  = weekVals.length;
+
+        return {
+            nombre: w.fixedData[0] || '—', pasillo: w.fixedData[1] || '—',
+            workedDays, totalHours, avgPerDay, avgPerWeek, avgPerMonth,
+            maxWeek, minWeek, weeksCount,
+            compDays, lbreDays, vcDays, licDays, incDays, otherDays,
+            daysA, daysC, daysI, daysN,
+        };
+    }).filter(Boolean);
+
+    // ── Ordenar ──
+    workerStats.sort((a, b) => {
+        const va = typeof a[sortCol] === 'string' ? a[sortCol].toLowerCase() : (a[sortCol] ?? 0);
+        const vb = typeof b[sortCol] === 'string' ? b[sortCol].toLowerCase() : (b[sortCol] ?? 0);
+        return sortDir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+    });
+
+    // ── Totales globales ──
+    const n = workerStats.length || 1;
+    const totalHrsAll  = workerStats.reduce((s,w) => s + w.totalHours, 0);
+    const avgDayAll    = workerStats.reduce((s,w) => s + w.avgPerDay, 0)   / n;
+    const avgWeekAll   = workerStats.reduce((s,w) => s + w.avgPerWeek, 0)  / n;
+    const avgMonthAll  = workerStats.reduce((s,w) => s + w.avgPerMonth, 0) / n;
+    const totalWorkers = workerStats.length;
+
+    function fmt(v) { return isFinite(v) ? v.toFixed(1) : '0.0'; }
+    function bar(pct, color) {
+        const w = Math.min(100, Math.round(pct));
+        return `<div style="background:#e0e0e0;border-radius:3px;height:6px;width:56px;display:inline-block;vertical-align:middle;margin-right:2px;"><div style="background:${color};height:6px;border-radius:3px;width:${w}%;"></div></div>`;
+    }
+
+    function sortTh(col, label, title = '') {
+        const active = sortCol === col;
+        const arrow  = active ? (sortDir === 'asc' ? '▲' : '▼') : '⇅';
+        const bg     = active ? 'background:rgba(255,255,255,0.18);' : '';
+        return `<th title="${title||label}" style="padding:7px 6px;white-space:nowrap;cursor:pointer;user-select:none;${bg}font-size:0.82em;"
+            onclick="const c=document.getElementById('horasPromedioContainer');const p=c.dataset.sortCol;c.dataset.sortDir=(p==='${col}'&&c.dataset.sortDir==='asc')?'desc':'asc';c.dataset.sortCol='${col}';renderHorasPromedioReport();">
+            ${label}&nbsp;<span style="font-size:0.75em;opacity:0.75;">${arrow}</span></th>`;
+    }
+
+    // ── Filas de tabla ──
+    const tableRows = workerStats.map((w, idx) => {
+        const totalCat = w.daysA + w.daysC + w.daysI + w.daysN || 1;
+        const pA = w.daysA / totalCat * 100, pC = w.daysC / totalCat * 100;
+        const pI = w.daysI / totalCat * 100, pN = w.daysN / totalCat * 100;
+        const dayColor = w.avgPerDay >= 7.5 ? '#c62828' : w.avgPerDay >= 6.5 ? '#2e7d32' : w.avgPerDay > 0 ? '#f57c00' : '#aaa';
+        const rowBg = idx % 2 === 0 ? '#ffffff' : '#f9f9fc';
+        const uid = `hp-detail-${idx}`;
+        return `<tr class="hp-worker-row" data-hp-idx="${idx}" style="background:${rowBg};border-bottom:1px solid #eee;cursor:pointer;" onclick="toggleHorasDetalle(this,'${w.nombre.replace(/'/g,"\\'")}')">
+            <td style="padding:5px 8px;font-weight:600;color:#1a237e;white-space:nowrap;">
+                <span style="display:inline-flex;align-items:center;gap:5px;">
+                    <span class="hp-toggle-icon" style="font-size:0.75em;color:#90a4ae;">▶</span>
+                    ${w.nombre}
+                </span>
+            </td>
+            <td style="padding:5px 6px;font-size:0.82em;color:#555;">${w.pasillo}</td>
+            <td style="text-align:center;padding:5px 4px;font-weight:700;color:#1565c0;">${w.workedDays}</td>
+            <td style="text-align:center;padding:5px 4px;font-weight:700;color:#0d47a1;">${fmt(w.totalHours)}</td>
+            <td style="text-align:center;padding:5px 4px;font-weight:800;color:${dayColor};">${fmt(w.avgPerDay)}</td>
+            <td style="text-align:center;padding:5px 4px;font-weight:700;color:#4527a0;">${fmt(w.avgPerWeek)}</td>
+            <td style="text-align:center;padding:5px 4px;font-weight:700;color:#00838f;">${fmt(w.avgPerMonth)}</td>
+            <td style="text-align:center;padding:5px 4px;font-size:0.85em;color:#388e3c;">${fmt(w.maxWeek)}</td>
+            <td style="text-align:center;padding:5px 4px;font-size:0.85em;color:#c62828;">${fmt(w.minWeek)}</td>
+            <td style="text-align:center;padding:5px 4px;color:#4caf50;font-weight:600;">${w.compDays}</td>
+            <td style="text-align:center;padding:5px 4px;color:#1976d2;font-weight:600;">${w.lbreDays}</td>
+            <td style="text-align:center;padding:5px 4px;color:#d81b60;font-weight:600;">${w.vcDays}</td>
+            <td style="text-align:center;padding:5px 4px;color:#b71c1c;font-weight:600;">${w.licDays + w.incDays}</td>
+            <td style="padding:5px 4px;white-space:nowrap;font-size:0.8em;">
+                <span style="color:#f57c00;font-weight:700;">A:${w.daysA}</span>
+                <span style="color:#1565c0;margin-left:5px;font-weight:700;">C:${w.daysC}</span>
+                <span style="color:#00838f;margin-left:5px;font-weight:700;">I:${w.daysI}</span>
+                <span style="color:#311b92;margin-left:5px;font-weight:700;">N:${w.daysN}</span>
+            </td>
+            <td style="padding:5px 6px;min-width:90px;">
+                <div title="Aperturas ${Math.round(pA)}%">${bar(pA,'#f57c00')}<span style="font-size:0.68em;color:#777;">${Math.round(pA)}%</span></div>
+                <div title="Cierres ${Math.round(pC)}%">${bar(pC,'#1565c0')}<span style="font-size:0.68em;color:#777;">${Math.round(pC)}%</span></div>
+                <div title="Intermedios ${Math.round(pI)}%">${bar(pI,'#00838f')}<span style="font-size:0.68em;color:#777;">${Math.round(pI)}%</span></div>
+                <div title="Noches ${Math.round(pN)}%">${bar(pN,'#311b92')}<span style="font-size:0.68em;color:#777;">${Math.round(pN)}%</span></div>
+            </td>
+        </tr>`;
+    }).join('');
+
+    const monthOptions = months.map(m => {
+        if (!m) return `<option value="" ${!selectedMonth?'selected':''}>Todos los meses</option>`;
+        const [yr, mo] = m.split('-');
+        return `<option value="${m}" ${m===selectedMonth?'selected':''}>${MONTH_NAMES_ES[parseInt(mo)-1]} ${yr}</option>`;
+    }).join('');
+    const pasilloOptions = pasillos.map(p =>
+        `<option value="${p}" ${p===selectedPasillo?'selected':''}>${p||'Todos los equipos'}</option>`
+    ).join('');
+
+    const sumWD  = workerStats.reduce((s,w)=>s+w.workedDays,0);
+    const sumCO  = workerStats.reduce((s,w)=>s+w.compDays,0);
+    const sumLB  = workerStats.reduce((s,w)=>s+w.lbreDays,0);
+    const sumVC  = workerStats.reduce((s,w)=>s+w.vcDays,0);
+    const sumLI  = workerStats.reduce((s,w)=>s+w.licDays+w.incDays,0);
+
+    container.innerHTML = `
+    <div style="padding:16px 20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding-bottom:14px;border-bottom:2px solid #e3f2fd;margin-bottom:16px;">
+        <h3 style="margin:0;color:#1a237e;font-size:1.12em;">⏱️ Promedio de Horas Trabajadas por Auxiliar</h3>
+        ${closeBtnHtml}
+      </div>
+
+      <!-- Filtros -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end;background:#f5f7fa;border-radius:8px;padding:10px 14px;border:1px solid #e0e0e0;">
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <label style="font-size:0.72em;font-weight:800;color:#555;letter-spacing:0.5px;">MES</label>
+          <select style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.87em;min-width:135px;"
+            onchange="document.getElementById('horasPromedioContainer').dataset.selectedMonth=this.value;renderHorasPromedioReport();">${monthOptions}</select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <label style="font-size:0.72em;font-weight:800;color:#555;letter-spacing:0.5px;">EQUIPO / PASILLO</label>
+          <select style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.87em;min-width:145px;"
+            onchange="document.getElementById('horasPromedioContainer').dataset.selectedPasillo=this.value;renderHorasPromedioReport();">${pasilloOptions}</select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <label style="font-size:0.72em;font-weight:800;color:#555;letter-spacing:0.5px;">BUSCAR TRABAJADOR</label>
+          <input type="text" placeholder="Nombre..." value="${searchText}" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.87em;min-width:160px;"
+            oninput="document.getElementById('horasPromedioContainer').dataset.searchText=this.value;renderHorasPromedioReport();">
+        </div>
+        <div style="margin-left:auto;font-size:0.8em;color:#777;padding-bottom:2px;">
+          <strong style="color:#1a237e;">${totalWorkers}</strong> auxiliar${totalWorkers!==1?'es':''}
+          ${selectedMonth ? ' · <strong>' + (()=>{const[yr,mo]=selectedMonth.split('-');return MONTH_NAMES_ES[parseInt(mo)-1]+' '+yr;})() + '</strong>' : ''}
+        </div>
+      </div>
+
+      <!-- Tarjetas resumen -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+        <div style="flex:1;min-width:110px;background:linear-gradient(135deg,#e3f2fd,#bbdefb);border-radius:10px;padding:11px 14px;text-align:center;border:1px solid #90caf9;">
+          <div style="font-size:0.68em;color:#1565c0;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">Total Horas</div>
+          <div style="font-size:1.8em;font-weight:900;color:#0d47a1;line-height:1.2;">${fmt(totalHrsAll)}</div>
+          <div style="font-size:0.7em;color:#1976d2;">${sumWD} días trabajados</div>
+        </div>
+        <div style="flex:1;min-width:110px;background:linear-gradient(135deg,#e8f5e9,#c8e6c9);border-radius:10px;padding:11px 14px;text-align:center;border:1px solid #a5d6a7;">
+          <div style="font-size:0.68em;color:#2e7d32;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">Prom. Hrs/Día</div>
+          <div style="font-size:1.8em;font-weight:900;color:#1b5e20;line-height:1.2;">${fmt(avgDayAll)}</div>
+          <div style="font-size:0.7em;color:#388e3c;">por día efectivo</div>
+        </div>
+        <div style="flex:1;min-width:110px;background:linear-gradient(135deg,#f3e5f5,#e1bee7);border-radius:10px;padding:11px 14px;text-align:center;border:1px solid #ce93d8;">
+          <div style="font-size:0.68em;color:#6a1b9a;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">Prom. Hrs/Semana</div>
+          <div style="font-size:1.8em;font-weight:900;color:#4a148c;line-height:1.2;">${fmt(avgWeekAll)}</div>
+          <div style="font-size:0.7em;color:#7b1fa2;">promedio equipo</div>
+        </div>
+        <div style="flex:1;min-width:110px;background:linear-gradient(135deg,#fff8e1,#ffecb3);border-radius:10px;padding:11px 14px;text-align:center;border:1px solid #ffe082;">
+          <div style="font-size:0.68em;color:#e65100;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">Prom. Hrs/Mes</div>
+          <div style="font-size:1.8em;font-weight:900;color:#bf360c;line-height:1.2;">${fmt(avgMonthAll)}</div>
+          <div style="font-size:0.7em;color:#f57c00;">promedio equipo</div>
+        </div>
+        <div style="flex:1;min-width:110px;background:linear-gradient(135deg,#fce4ec,#f8bbd0);border-radius:10px;padding:11px 14px;text-align:center;border:1px solid #f48fb1;">
+          <div style="font-size:0.68em;color:#880e4f;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;">COMP + LBRE</div>
+          <div style="font-size:1.8em;font-weight:900;color:#ad1457;line-height:1.2;">${sumCO+sumLB}</div>
+          <div style="font-size:0.7em;color:#c2185b;">${sumVC} VC · ${sumLI} LIC/INC</div>
+        </div>
+      </div>
+
+      <!-- Tabla -->
+      <div style="overflow-x:auto;border-radius:8px;border:1px solid #ddd;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+        <table style="width:100%;border-collapse:collapse;font-size:0.83em;">
+          <thead>
+            <tr style="background:#1a237e;color:#fff;">
+              ${sortTh('nombre','Trabajador')}
+              ${sortTh('pasillo','Equipo')}
+              ${sortTh('workedDays','Días Trab.','Días con turno laboral (sin COMP/LBRE/VC/LIC/INC)')}
+              ${sortTh('totalHours','Total Hrs')}
+              ${sortTh('avgPerDay','Prom/Día','Promedio horas por día trabajado')}
+              ${sortTh('avgPerWeek','Prom/Sem','Promedio horas por semana')}
+              ${sortTh('avgPerMonth','Prom/Mes','Promedio horas por mes')}
+              ${sortTh('maxWeek','Max Sem.','Semana con más horas')}
+              ${sortTh('minWeek','Min Sem.','Semana con menos horas')}
+              ${sortTh('compDays','COMP')}
+              ${sortTh('lbreDays','LBRE')}
+              ${sortTh('vcDays','VC')}
+              ${sortTh('licDays','LIC/INC')}
+              <th style="padding:7px 6px;font-size:0.82em;">Turnos A/C/I/N</th>
+              <th style="padding:7px 6px;font-size:0.82em;min-width:100px;">Distribución</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows || '<tr><td colspan="15" style="text-align:center;padding:24px;color:#999;">Sin resultados para los filtros seleccionados.</td></tr>'}
+          </tbody>
+          <tfoot>
+            <tr style="background:#e8eaf6;font-weight:700;border-top:2px solid #3949ab;font-size:0.88em;">
+              <td colspan="2" style="padding:6px 8px;color:#1a237e;">TOTAL / PROMEDIO EQUIPO</td>
+              <td style="text-align:center;padding:6px 4px;color:#1565c0;">${sumWD}</td>
+              <td style="text-align:center;padding:6px 4px;color:#0d47a1;">${fmt(totalHrsAll)}</td>
+              <td style="text-align:center;padding:6px 4px;color:#2e7d32;">${fmt(avgDayAll)}</td>
+              <td style="text-align:center;padding:6px 4px;color:#4527a0;">${fmt(avgWeekAll)}</td>
+              <td style="text-align:center;padding:6px 4px;color:#00838f;">${fmt(avgMonthAll)}</td>
+              <td colspan="2" style="padding:6px 4px;"></td>
+              <td style="text-align:center;padding:6px 4px;color:#4caf50;">${sumCO}</td>
+              <td style="text-align:center;padding:6px 4px;color:#1976d2;">${sumLB}</td>
+              <td style="text-align:center;padding:6px 4px;color:#d81b60;">${sumVC}</td>
+              <td style="text-align:center;padding:6px 4px;color:#b71c1c;">${sumLI}</td>
+              <td colspan="2" style="padding:6px 4px;"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p style="font-size:0.72em;color:#aaa;margin-top:8px;">
+        * Prom/Día excluye COMP, LBRE, VC, LIC, INC, DF, CAP, 0SP. Semana inicia el lunes. Clic en encabezado para ordenar. Color Prom/Día: 🟢 ≥6.5h · 🟠 &lt;6.5h · 🔴 ≥7.5h.
+      </p>
+    </div>`;
+
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth' });
 }
 
 function renderKrebsReport() {
@@ -4411,6 +4899,7 @@ document.addEventListener('DOMContentLoaded', () => {
     attachEvt('plantHealthBtn',       'click', () => toggleSidebarPanel('plantHealthBtn',        'plantHealthContainer',        renderPlantHealthReport));
     attachEvt('tasksReportBtn',       'click', () => toggleSidebarPanel('tasksReportBtn',        'tasksReportContainer',        renderTasksReport));
     attachEvt('equidadBtn',           'click', () => toggleSidebarPanel('equidadBtn',            'equidadReportContainer',      renderEquidadReport));
+    attachEvt('horasPromedioBtn',     'click', () => toggleSidebarPanel('horasPromedioBtn',       'horasPromedioContainer',      renderHorasPromedioReport));
 
     // Eventos del módulo Administrar mi Planta
     const plantContainer = document.getElementById('plantManagerContainer');
