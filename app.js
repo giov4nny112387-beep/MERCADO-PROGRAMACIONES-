@@ -22,11 +22,13 @@ let undoStack = [];
 const MAX_UNDO = 50;
 let isFullscreen = false;
 function getStateKey() { return 'kronoAppState_v2_' + (selectedStore || 'UNKNOWN'); }
+// Clave de administrador única por tienda: 123<TIENDA>456ADMIN (ej: 123AKB30456ADMIN)
+function getAdminKey() { return '123' + (selectedStore || '').toUpperCase() + '456ADMIN'; }
 let selectedStore = null;
 let currentRole = null; // 'admin' | 'marcaciones'
 let appState = {
     processedData: [], dateHeaders: [], weeks:[], fixedHeaders:[], minStaff: 1,
-    holidays: new Set(), weeksToHighlight: new Set(),
+    holidays: new Set(), weeksToHighlight: new Set(), noveltyWeeks: new Set(),
     aisleDifficulties: {},
     swappedSeats: new Set(),
     lockedAisles: new Set(),
@@ -100,14 +102,14 @@ const masterShiftList = [
     '7C13-20',     '6.5C13-19.3',  '8C13-21',
     '7C13.3-20.3', '6.5C13.3-20',  '8C13.3-21.3',
     '7C14-21',     '6.5C14-20.3',  '8C14-22',
-    '7C14.3-21.3', '6.5C14.3-21',  '6.5C13-21.3',
+    '7C14.3-21.3', '6.5C14.3-21',
     '8C14.3-22.3', '7C15-22',  '6.5C15-21.3',
     // Noches (N)
     '6.5N22-5.3', '7N22-6', '8N22-7', '8N21.3-6.3', '7I10-6',
     // Especiales
     'COMP', 'LBRE', 'VC', 'LIC', 'INC', 'DF', 'CAP', '0SP'
 ].filter((v, i, a) => a.indexOf(v) === i);
-const csvInputMap = { '1.1': '6.5A6-12.3', '2.2': '6.5C13-21.3', '3.3': 'LBRE', '4.4': '6.5N22-5.3', '5.5': 'COMP', '0': '0SP' };
+const csvInputMap = { '1.1': '6.5A6-12.3', '2.2': '6.5C15-21.3', '3.3': 'LBRE', '4.4': '6.5N22-5.3', '5.5': 'COMP', '0': '0SP' };
 const shift7hTo8hMap = {};
 const shift8hTo7hMap = {};
 
@@ -115,12 +117,12 @@ const shift8hTo7hMap = {};
 // La lógica semanal (lunes a domingo) decide si cada día se queda en 6.5h, sube a 8h o pasa a 7h.
 const shift65To7Map = {
     '6.5A6-12.3':  '7A6-13',
-    '6.5C13-21.3': '7C14.3-21.3',
+    '6.5C15-21.3': '7C14.3-21.3',
     '6.5N22-5.3':  '7N22-6'
 };
 const shift65To8Map = {
     '6.5A6-12.3':  '8A6-14',
-    '6.5C13-21.3': '8C13.3-21.3',
+    '6.5C15-21.3': '8C13.3-21.3',
     '6.5N22-5.3':  '8N21.3-6.3'
 };
 
@@ -282,6 +284,7 @@ function saveAppState() {
             ...appState,
             holidays: Array.from(appState.holidays),
             weeksToHighlight: Array.from(appState.weeksToHighlight),
+            noveltyWeeks: Array.from(appState.noveltyWeeks || []),
             swappedSeats: Array.from(appState.swappedSeats),
             lockedAisles: Array.from(appState.lockedAisles),
             lockedPersons: Array.from(appState.lockedPersons)
@@ -306,6 +309,7 @@ function loadAppState() {
         appState = data.state;
         appState.holidays = new Set(data.state.holidays);
         appState.weeksToHighlight = new Set(data.state.weeksToHighlight);
+        appState.noveltyWeeks = new Set(data.state.noveltyWeeks || []);
         appState.aisleDifficulties = data.state.aisleDifficulties || {};
         appState.swappedSeats = new Set(data.state.swappedSeats ||[]);
         appState.lockedAisles = new Set(data.state.lockedAisles ||[]);
@@ -980,7 +984,7 @@ function renderScheduleTable(data, visibleDates) {
                 const isHoliday = appState.holidays.has(dateStr);
                 const cellDow = new Date(dateStr + 'T00:00:00').getDay();
                 const weekendClass = cellDow === 6 ? 'sat-cell' : (cellDow === 0 ? 'sun-cell' : '');
-                let fClass = cell.className + (appState.weeksToHighlight.has(`${rowData.id}:${dateStr}`) ? ' turno-CORRECCION' : '');
+                let fClass = cell.className + (appState.weeksToHighlight.has(`${rowData.id}:${dateStr}`) ? ' turno-CORRECCION' : '') + (appState.noveltyWeeks?.has(`${rowData.id}:${dateStr}`) ? ' turno-NOVEDAD' : '');
                 if (isHoliday && cell.name === 'COMP') fClass = 'comp-on-holiday'; else if (isHoliday) fClass += ' holiday-cell';
                 const allDatesIdx = appState.dateHeaders.indexOf(dateStr);
                 const nextDateStr = allDatesIdx >= 0 && allDatesIdx < appState.dateHeaders.length - 1 ? appState.dateHeaders[allDatesIdx + 1] : null;
@@ -1344,6 +1348,47 @@ function getDNADates(effectiveDateStr) {
     return appState.dateHeaders.slice(-4);
 }
 
+// ── ADN de turnos (continuidad de horarios) ─────────────────────────────────
+// Clasifica el tipo de turno de una persona en la ventana ADN (4 días previos
+// a la fecha efectiva): 'N' = noches, 'ACI' = apertura/cierre/intermedio,
+// null = sin turnos de trabajo en la ventana (vacaciones, licencias, etc.)
+function getShiftDNAType(worker, effectiveDateStr) {
+    const dates = getDNADates(effectiveDateStr);
+    let nCount = 0, aciCount = 0;
+    dates.forEach(d => {
+        const name = worker.dailyData[d]?.name || '';
+        if (/^\d+(?:\.\d+)?[NI]/.test(name)) nCount++;
+        else if (/^\d+(?:\.\d+)?(A|i|C)/.test(name)) aciCount++;
+    });
+    if (nCount === 0 && aciCount === 0) return null;
+    return nCount >= aciCount ? 'N' : 'ACI';
+}
+
+// Regla DURA de ADN: los de turno N solo pueden rotar entre sí; los de turno
+// A/C/i pueden rotar entre ellos. null (sin datos en la ventana) es comodín.
+function dnaCompatible(wA, wB, effectiveDateStr) {
+    const tA = getShiftDNAType(wA, effectiveDateStr);
+    const tB = getShiftDNAType(wB, effectiveDateStr);
+    if (tA === null || tB === null) return true;
+    return tA === tB;
+}
+
+// PRIORIDAD Nº1 DEL ADN: ¿tiene turno LBRE el domingo anterior a la fecha
+// efectiva (lunes)? Estas personas rotan de primero y se emparejan
+// preferiblemente entre ellas — transición perfecta: libres el domingo y
+// arrancan el horario nuevo el lunes. De esta regla se derivan las demás
+// reglas del ADN (N solo con N; A/C/i entre ellos).
+function hasSundayFree(worker, effectiveDateStr) {
+    if (!effectiveDateStr) return false;
+    const d = new Date(effectiveDateStr + 'T00:00:00');
+    d.setDate(d.getDate() - 1);
+    const pad = n => String(n).padStart(2, '0');
+    const sunday = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const shift = worker.dailyData[sunday];
+    if (!shift) return false;
+    return shift.name === 'LBRE';
+}
+
 function generateDNABlocksHTML(seat, effectiveDateStr) {
     if (appState.dateHeaders.length === 0) return '';
     const dates = getDNADates(effectiveDateStr);
@@ -1449,6 +1494,8 @@ function getRotationSuggestion(seatId, effectiveDateStr) {
                 if (appState.lockedAisles.has(candidateAisle)) return;
                 if (candidateAisle === currentAisle) return;
                 if (appState.swappedSeats.has(candidate.id)) return;
+                // ADN duro: N solo con N; A/C/i entre ellos (continuidad de horarios)
+                if (!dnaCompatible(currentSeat, candidate, effectiveDateStr)) return;
                 if ((appState.aisleDifficulties[candidateAisle] || 'Medio') !== targetDiff) return;
                 // Bloqueo duro: Difícil → Difícil prohibido
                 if (currentDiff === 'Alto' && (appState.aisleDifficulties[candidateAisle] || '') === 'Alto') return;
@@ -1464,6 +1511,8 @@ function getRotationSuggestion(seatId, effectiveDateStr) {
 
                 // ADN: compatibilidad de turnos (desempate)
                 let score = 0;
+                // Prioridad Nº1: ambos con LBRE el domingo → emparejamiento ideal
+                if (hasSundayFree(currentSeat, effectiveDateStr) && hasSundayFree(candidate, effectiveDateStr)) score += 100;
                 dnaDates.forEach(date => {
                     if (candidate.dailyData[date]?.name === currentSeat.dailyData[date]?.name) score += 2;
                     else if (candidate.dailyData[date]?.isCoverageShift === currentSeat.dailyData[date]?.isCoverageShift) score += 1;
@@ -1533,8 +1582,54 @@ function autoRotateAll() {
         appState.swappedSeats.add(wB.id);
     }
 
+    // ADN: compatibilidad de turnos entre dos personas (mismo criterio que getRotationSuggestion)
+    const dnaDates = getDNADates(effDate);
+    function dnaScore(wA, wB) {
+        let score = 0;
+        // Prioridad Nº1: ambos con LBRE el domingo → emparejamiento ideal
+        if (hasSundayFree(wA, effDate) && hasSundayFree(wB, effDate)) score += 100;
+        dnaDates.forEach(date => {
+            if (wA.dailyData[date]?.name === wB.dailyData[date]?.name) score += 2;
+            else if (wA.dailyData[date]?.isCoverageShift === wB.dailyData[date]?.isCoverageShift) score += 1;
+        });
+        return score;
+    }
+
+    // Reglas DURAS para mover a `worker` hacia `targetAisle` (nunca se relajan):
+    // Difícil→Difícil prohibido; no volver a los últimos `memoryN` pasillos del ciclo.
+    function canMoveTo(worker, targetAisle, memoryN) {
+        if (!targetAisle) return false;
+        const curAisle = worker.fixedData[1] || '';
+        if (targetAisle === curAisle) return false;
+        if (appState.lockedAisles.has(targetAisle)) return false;
+        const curDiff = appState.aisleDifficulties[curAisle] || '';
+        const tgtDiff = appState.aisleDifficulties[targetAisle] || '';
+        if (curDiff === 'Alto' && tgtDiff === 'Alto') return false;
+        return !new Set(getWorkerAisleCycle(worker).slice(-memoryN)).has(targetAisle);
+    }
+    function hardOk(wA, wB, memoryN) {
+        return canMoveTo(wA, wB.fixedData[1] || '', memoryN)
+            && canMoveTo(wB, wA.fixedData[1] || '', memoryN);
+    }
+    // Regla de secuencia [4,7] verificada en AMBAS direcciones del intercambio
+    function seqOk(wA, wB) {
+        const diffA = appState.aisleDifficulties[wA.fixedData[1] || ''] || 'Medio';
+        const diffB = appState.aisleDifficulties[wB.fixedData[1] || ''] || 'Medio';
+        return getValidDiffsForWorker(wA).includes(diffB)
+            && getValidDiffsForWorker(wB).includes(diffA);
+    }
+
     let rotated = 0;
     let pendingManual = [];
+
+    // Prioridad de procesamiento: PRIMERO quienes tienen el domingo libre antes
+    // del ciclo (transición limpia al lunes efectivo); luego por carga acumulada.
+    function rotOrder(a, b) {
+        const sfA = hasSundayFree(a, effDate) ? 0 : 1;
+        const sfB = hasSundayFree(b, effDate) ? 0 : 1;
+        if (sfA !== sfB) return sfA - sfB;
+        return krebsScore(b) - krebsScore(a);
+    }
 
     // ── PASADA 1: emparejamiento balanceado dentro de cada subgrupo ───────────
     // Orden de proceso: D primero (alternando M/S destino), luego M↔S sobrantes.
@@ -1545,64 +1640,146 @@ function autoRotateAll() {
             if (!aisle) return [];
             return appState.processedData
                 .filter(w => w.fixedData[1] === aisle && isAvailable(w))
-                .sort((a, b) => krebsScore(b) - krebsScore(a));
+                .sort(rotOrder);
         }
 
         const dPool = sgPool('Alto');
         const mPool = sgPool('Medio');
         const sPool = sgPool('Bajo');
 
-        // Paso A: D workers — alternando M y S para cubrir los 3 pares del SG
+        // Paso A: D workers — alternando M y S para cubrir los 3 pares del SG.
+        // Si el candidato preferido no pasa canSwap se prueba el siguiente del pool
+        // (antes se descartaba el par completo y el trabajador quedaba sin rotar).
         let preferM = true;
         dPool.forEach(dWorker => {
             const validDiffs = getValidDiffsForWorker(dWorker);
             const canM = validDiffs.includes('Medio');
             const canS = validDiffs.includes('Bajo');
-            let partner = null;
+            let candidates = [];
 
             if (canM && canS) {
-                if (preferM) {
-                    partner = mPool.length > 0 ? mPool.shift() : (sPool.length > 0 ? sPool.shift() : null);
-                } else {
-                    partner = sPool.length > 0 ? sPool.shift() : (mPool.length > 0 ? mPool.shift() : null);
-                }
+                candidates = preferM ? [...mPool, ...sPool] : [...sPool, ...mPool];
                 preferM = !preferM;
-            } else if (canM && mPool.length > 0) {
-                partner = mPool.shift();
-            } else if (canS && sPool.length > 0) {
-                partner = sPool.shift();
+            } else if (canM) {
+                candidates = [...mPool];
+            } else if (canS) {
+                candidates = [...sPool];
             }
 
-            if (partner && isAvailable(partner) && canSwap(dWorker, partner)) { queueSwap(dWorker, partner); rotated++; }
+            const partner = candidates.find(c => isAvailable(c)
+                && dnaCompatible(dWorker, c, effDate)
+                && canSwap(dWorker, c));
+            if (partner) {
+                const pool = mPool.includes(partner) ? mPool : sPool;
+                pool.splice(pool.indexOf(partner), 1);
+                queueSwap(dWorker, partner); rotated++;
+            }
         });
 
-        // Paso B: M y S sobrantes — emparejar si al menos uno puede ir al nivel del otro
-        while (mPool.length > 0 && sPool.length > 0) {
-            const mW = mPool.shift();
-            const sW = sPool.shift();
-            if (!isAvailable(mW) || !isAvailable(sW)) continue;
+        // Paso B: M y S sobrantes — emparejar si al menos uno puede ir al nivel del otro.
+        // Se prueban todas las combinaciones M×S (antes solo cabeza a cabeza: si un
+        // par fallaba canSwap, ambos quedaban descartados sin reintento).
+        mPool.forEach(mW => {
+            if (!isAvailable(mW)) return;
             const mValid = getValidDiffsForWorker(mW);
-            const sValid = getValidDiffsForWorker(sW);
-            if ((mValid.includes('Bajo') || sValid.includes('Medio')) && canSwap(mW, sW)) {
+            const sIdx = sPool.findIndex(sW => isAvailable(sW)
+                && dnaCompatible(mW, sW, effDate)
+                && (mValid.includes('Bajo') || getValidDiffsForWorker(sW).includes('Medio'))
+                && canSwap(mW, sW));
+            if (sIdx !== -1) {
+                const sW = sPool.splice(sIdx, 1)[0];
                 queueSwap(mW, sW); rotated++;
             }
-        }
+        });
     });
 
     // ── PASADA 2: trabajadores sin par en su SG → cruce inter-subgrupo ────────
     // Preferencia: SG que no tenga el mismo color (ver getRotationSuggestion pasadas 3-4)
-    const unmatched = appState.processedData.filter(isAvailable)
-        .sort((a, b) => krebsScore(b) - krebsScore(a));
+    const unmatched = appState.processedData.filter(w => !w.isPlaceholder && isAvailable(w))
+        .sort(rotOrder);
 
     unmatched.forEach(worker => {
         if (!isAvailable(worker)) return;
         const suggestion = getRotationSuggestion(worker.id, effDate);
-        if (!suggestion || !isAvailable(suggestion)) {
-            pendingManual.push(worker);
-            return;
-        }
+        if (!suggestion || !isAvailable(suggestion)) return; // las pasadas 3-4 lo resuelven
         queueSwap(worker, suggestion);
         rotated++;
+    });
+
+    // ── PASADA 3: GARANTÍA DE ROTACIÓN TOTAL — emparejar a todos los restantes ─
+    // Niveles de relajación progresiva. Las reglas duras NUNCA se relajan:
+    // Difícil→Difícil prohibido, no quedarse en el pasillo actual y ADN
+    // (N solo con N; A/C/i entre ellos). El puntaje ADN desempata siempre.
+    //   Nivel 1: secuencia [4,7] en ambas direcciones + memoria de 3 pasillos
+    //   Nivel 2: sin regla de secuencia, memoria de 3 pasillos
+    //   Nivel 3: sin secuencia, memoria de 1 (solo se prohíbe el pasillo actual)
+    let relaxedSwaps = 0;
+    const relaxLevels = [
+        { seq: true,  memory: 3 },
+        { seq: false, memory: 3 },
+        { seq: false, memory: 1 }
+    ];
+    relaxLevels.forEach((lvl, li) => {
+        let pool = appState.processedData.filter(w => !w.isPlaceholder && isAvailable(w))
+            .sort(rotOrder);
+        while (pool.length >= 2) {
+            const worker = pool.shift();
+            let best = null, bestDna = -1;
+            pool.forEach(cand => {
+                if (!dnaCompatible(worker, cand, effDate)) return; // ADN: nunca se relaja
+                if (!hardOk(worker, cand, lvl.memory)) return;
+                if (lvl.seq && !seqOk(worker, cand)) return;
+                const s = dnaScore(worker, cand);
+                if (s > bestDna) { bestDna = s; best = cand; }
+            });
+            if (best) {
+                pool = pool.filter(w => w.id !== best.id);
+                queueSwap(worker, best);
+                rotated++;
+                if (li > 0) relaxedSwaps++;
+            }
+        }
+    });
+
+    // ── PASADA 4: persona impar → rotación triangular A→B→C ──────────────────
+    // Los intercambios son de a pares, así que con número impar siempre sobraría
+    // alguien. Se le inserta en un swap ya encolado agregando un segundo swap:
+    // applyPendingSwaps aplica en orden, y dos swaps encadenados (A↔B, luego B↔L)
+    // producen la rotación triangular: A→pasillo B, B→pasillo L, L→pasillo A.
+    const baseSwaps = appState.pendingSwaps.slice();
+    const usedChains = new Set();
+    appState.processedData.filter(w => !w.isPlaceholder && isAvailable(w)).forEach(loner => {
+        const aisleL = loner.fixedData[1] || '';
+        let bestInsert = null, bestDna = -1;
+        [3, 1].forEach(memoryN => {
+            if (bestInsert) return; // preferir la memoria estricta de 3 ciclos
+            baseSwaps.forEach(swap => {
+                if (usedChains.has(swap)) return;
+                const wA = appState.processedData.find(w => w.id === swap.idA);
+                const wB = appState.processedData.find(w => w.id === swap.idB);
+                if (!wA || !wB) return;
+                // ADN duro: en el triángulo los horarios rotan entre los TRES,
+                // así que el impar debe ser compatible con ambos miembros.
+                if (!dnaCompatible(loner, wA, effDate) || !dnaCompatible(loner, wB, effDate)) return;
+                // Variante 1: encolar (B,L) → B va al pasillo de L, L al pasillo de A
+                if (canMoveTo(wB, aisleL, memoryN) && canMoveTo(loner, swap.aisleA, memoryN)) {
+                    const s = dnaScore(loner, wB);
+                    if (s > bestDna) { bestDna = s; bestInsert = { anchor: wB, chain: swap }; }
+                }
+                // Variante 2: encolar (A,L) → A va al pasillo de L, L al pasillo de B
+                if (canMoveTo(wA, aisleL, memoryN) && canMoveTo(loner, swap.aisleB, memoryN)) {
+                    const s = dnaScore(loner, wA);
+                    if (s > bestDna) { bestDna = s; bestInsert = { anchor: wA, chain: swap }; }
+                }
+            });
+        });
+        if (bestInsert) {
+            usedChains.add(bestInsert.chain);
+            queueSwap(bestInsert.anchor, loner);
+            rotated++;
+        } else {
+            pendingManual.push(loner);
+        }
     });
 
     saveAppState();
@@ -1615,6 +1792,9 @@ function autoRotateAll() {
         showToast(`✅ Auto-rotación: ${rotated} intercambio(s).${manualMsg}`, 'success');
     } else {
         showToast(`⚠️ Ningún intercambio posible automáticamente.${manualMsg}`, 'warning');
+    }
+    if (relaxedSwaps > 0) {
+        setTimeout(() => showToast(`ℹ️ ${relaxedSwaps} intercambio(s) relajaron la regla de secuencia para garantizar rotación total (reglas duras intactas).`, 'info'), 400);
     }
     if (pendingManual.length > 0) {
         const names = pendingManual.map(w => w.fixedData[0]).join(', ');
@@ -3930,7 +4110,7 @@ async function loadFromGoogleSheets() {
         // Limpiar estado previo
         appState.swappedSeats.clear(); appState.lockedAisles.clear();
         appState.lockedPersons.clear(); appState.pendingSwaps = [];
-        appState.rotationEffectiveDate = null; appState.weeksToHighlight.clear();
+        appState.rotationEffectiveDate = null; appState.weeksToHighlight.clear(); appState.noveltyWeeks.clear();
         appState.dailyTasks = {};
         appState.minStaff = parseInt(document.getElementById('minStaff').value, 10) || 0;
 
@@ -4211,7 +4391,7 @@ async function autoLoadFromProgSheet() {
         appState.fixedHeaders = ['TRABAJADOR', 'EQUIPO', 'COD NOMI'];
         appState.swappedSeats.clear(); appState.lockedAisles.clear();
         appState.lockedPersons.clear(); appState.pendingSwaps = [];
-        appState.rotationEffectiveDate = null; appState.weeksToHighlight.clear(); appState.minStaff = 0;
+        appState.rotationEffectiveDate = null; appState.weeksToHighlight.clear(); appState.noveltyWeeks.clear(); appState.minStaff = 0;
 
         // Semanas y festivos
         const years = [...new Set(dateHeaders.map(d => d.substring(0, 4)))];
@@ -4572,7 +4752,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const performLogin = () => {
         const pwd = document.getElementById('passwordInput').value;
-        const isAdmin = pwd === 'ADMIN1' && currentRole === 'admin';
+        const isAdmin = currentRole === 'admin' && pwd.toUpperCase() === getAdminKey();
         const isMarcaciones = pwd === 'MARCA1' && currentRole === 'marcaciones';
         const isVerMiMalla = currentRole === 'vermimalla' && pwd.toUpperCase() === (selectedStore || '');
         if (!isAdmin && !isMarcaciones && !isVerMiMalla) { showToast('Contraseña incorrecta.', 'error'); return; }
@@ -4642,35 +4822,89 @@ document.addEventListener('DOMContentLoaded', () => {
     attachEvt('closeMetricsBtn', 'click', () => { document.getElementById('metricsModal').style.display = 'none'; });
 
     attachEvt('seasonBtn', 'click', () => {
-        const seasonMonths =[3, 7, 11]; const compDaysOfWeek =[1, 2, 3, 4, 5]; appState.weeksToHighlight.clear();
+        const seasonMonths =[3, 7, 11]; const compDaysOfWeek =[1, 2, 3, 4, 5];
+        appState.weeksToHighlight.clear(); appState.noveltyWeeks.clear();
         const weeksToApplyIndices = new Set();
         appState.weeks.forEach((weekDates, index) => { if (seasonMonths.includes(new Date(weekDates[0] + 'T00:00:00').getMonth())) weeksToApplyIndices.add(index); });
         appState.weeks.forEach((_, index) => { if (weeksToApplyIndices.has(index + 1)) weeksToApplyIndices.add(index); });
+
+        // REGLA DE TEMPORADA: el domingo con LBRE se trabaja (hereda el último turno
+        // laborado de esa semana) y genera un COMP la semana INMEDIATAMENTE siguiente.
+        let sundaysWorked = 0;
         appState.weeks.forEach((weekDates, index) => {
             if (!weeksToApplyIndices.has(index) || weekDates.length !== 7) return;
             const firstDateObj = new Date(weekDates[0] + 'T00:00:00'); const firstMonth = firstDateObj.getMonth(); const nextMonth = (firstMonth + 1) % 12;
-            let associatedSeasonMonthIndex = seasonMonths.includes(firstMonth) ? firstMonth : (seasonMonths.includes(nextMonth) ? nextMonth : -1);
+            const associatedSeasonMonthIndex = seasonMonths.includes(firstMonth) ? firstMonth : (seasonMonths.includes(nextMonth) ? nextMonth : -1);
             if (associatedSeasonMonthIndex === -1) return;
             const yearOfBoundary = (associatedSeasonMonthIndex < firstMonth) ? firstDateObj.getFullYear() + 1 : firstDateObj.getFullYear();
             const lastDayStr = new Date(yearOfBoundary, associatedSeasonMonthIndex + 1, 0).toISOString().split('T')[0];
-            let eligibleWorkers = appState.processedData.filter(worker => weekDates.reduce((sum, d) => sum + (worker.dailyData[d]?.hours || 0), 0) === 52);
-            let compDayIndex = 0; eligibleWorkers.forEach(worker => {
-                const dayToComp = compDaysOfWeek[compDayIndex % compDaysOfWeek.length];
-                const compDateStr = weekDates.find(d => new Date(d + 'T00:00:00').getDay() === dayToComp);
-                if (compDateStr && compDateStr <= lastDayStr && worker.dailyData[compDateStr]?.hours > 0) { worker.dailyData[compDateStr] = { ...allShifts['COMP'], aisle: worker.dailyData[compDateStr].aisle }; appState.weeksToHighlight.add(`${worker.id}:${compDateStr}`); }
+            const sundayStr = weekDates.find(d => new Date(d + 'T00:00:00').getDay() === 0);
+            if (!sundayStr || sundayStr > lastDayStr) return;
+            const nextWeek = appState.weeks[index + 1];
+
+            let compDayIndex = 0;
+            appState.processedData.forEach(worker => {
+                if (worker.dailyData[sundayStr]?.name !== 'LBRE') return;
+                // El domingo se trabaja con el último turno laborado de esa semana.
+                // El cambio se escribe en baseShifts (turno BASE, no el equivalente ya
+                // subido a 7h/8h) para que applyLegalHours recalcule la semana completa:
+                // al dejar de ser "domingo LBRE", la semana pasa de equivalentes 7h a la
+                // regla normal (sáb/dom en 8h, resto en 6.5h según corresponda).
+                const sourceDate = weekDates.slice(0, 6).reverse().find(d => (worker.dailyData[d]?.hours || 0) > 0);
+                if (!sourceDate) return;
+                const sourceBaseName = worker.baseShifts?.[sourceDate];
+                if (worker.baseShifts && sourceBaseName && allShifts[sourceBaseName]) {
+                    worker.baseShifts[sundayStr] = sourceBaseName;
+                    worker.dailyData[sundayStr] = { ...allShifts[sourceBaseName], aisle: worker.dailyData[sundayStr].aisle };
+                } else {
+                    worker.dailyData[sundayStr] = { ...worker.dailyData[sourceDate], aisle: worker.dailyData[sundayStr].aisle };
+                }
+                appState.weeksToHighlight.add(`${worker.id}:${sundayStr}`);
+                sundaysWorked++;
+                // Domingo trabajado → COMP la semana siguiente (L-V, rotando el día,
+                // sobre un día que tenga turno laborado). También en baseShifts para
+                // que applyLegalHours no lo revierta al turno base.
+                if (!nextWeek) return;
+                for (let k = 0; k < compDaysOfWeek.length; k++) {
+                    const dayToComp = compDaysOfWeek[(compDayIndex + k) % compDaysOfWeek.length];
+                    const compDateStr = nextWeek.find(d => new Date(d + 'T00:00:00').getDay() === dayToComp);
+                    if (compDateStr && (worker.dailyData[compDateStr]?.hours || 0) > 0) {
+                        worker.dailyData[compDateStr] = { ...allShifts['COMP'], aisle: worker.dailyData[compDateStr].aisle };
+                        if (worker.baseShifts) worker.baseShifts[compDateStr] = 'COMP';
+                        appState.weeksToHighlight.add(`${worker.id}:${compDateStr}`);
+                        break;
+                    }
+                }
                 compDayIndex++;
             });
         });
-        appState.dateHeaders.forEach((currentDateStr, dateIndex) => {
-            const weekIndex = appState.weeks.findIndex(week => week.includes(currentDateStr));
-            if (weekIndex === -1 || !weeksToApplyIndices.has(weekIndex)) return;
-            const firstDateObj = new Date(appState.weeks[weekIndex][0] + 'T00:00:00'); const firstMonth = firstDateObj.getMonth(); const nextMonth = (firstMonth + 1) % 12;
-            let seasonM = seasonMonths.includes(firstMonth) ? firstMonth : (seasonMonths.includes(nextMonth) ? nextMonth : -1);
-            if (seasonM === -1 || currentDateStr > new Date(firstDateObj.getFullYear() + (seasonM < firstMonth ? 1 : 0), seasonM + 1, 0).toISOString().split('T')[0]) return;
-            const prevDateStr = appState.dateHeaders[dateIndex - 1]; if (!prevDateStr) return;
-            appState.processedData.forEach(worker => { if (worker.dailyData[currentDateStr]?.name === 'LBRE' && worker.dailyData[prevDateStr]?.hours > 0) { worker.dailyData[currentDateStr] = { ...worker.dailyData[prevDateStr], aisle: worker.dailyData[currentDateStr].aisle }; appState.weeksToHighlight.add(`${worker.id}:${currentDateStr}`); } });
+
+        // RE-CÁLCULO DE HORAS: con los domingos ya trabajados en baseShifts, la lógica
+        // semanal reajusta los equivalentes 6.5h/7h/8h de cada semana según corresponda.
+        applyLegalHours();
+
+        // AUDITORÍA DE NOVEDADES: COMP que no aplica →
+        //   (a) dos o más COMP en la misma semana, o
+        //   (b) COMP en una semana cuyo domingo anterior fue LBRE (no se trabajó).
+        // La semana completa se marca en rojo (clase turno-NOVEDAD).
+        let noveltyCount = 0;
+        appState.processedData.forEach(worker => {
+            appState.weeks.forEach((weekDates, index) => {
+                const comps = weekDates.filter(d => worker.dailyData[d]?.name === 'COMP');
+                if (comps.length === 0) return;
+                const prevWeek = appState.weeks[index - 1];
+                const prevSunday = prevWeek ? prevWeek.find(d => new Date(d + 'T00:00:00').getDay() === 0) : null;
+                const sundayWasFree = prevSunday ? worker.dailyData[prevSunday]?.name === 'LBRE' : false;
+                if (comps.length >= 2 || sundayWasFree) {
+                    weekDates.forEach(d => appState.noveltyWeeks.add(`${worker.id}:${d}`));
+                    noveltyCount++;
+                }
+            });
         });
-        renderAll(); saveAppState(); showToast("Temporadas aplicadas correctamente.", "success");
+
+        renderAll(); saveAppState();
+        const noveltyMsg = noveltyCount > 0 ? ` ⚠️ ${noveltyCount} semana(s) con NOVEDAD (COMP que no aplica) marcadas en rojo.` : '';
+        showToast(`Temporadas aplicadas: ${sundaysWorked} domingo(s) LBRE ahora trabajados con COMP la semana siguiente.${noveltyMsg}`, noveltyCount > 0 ? 'warning' : 'success');
     });
 
     attachEvt('correctionBtn', 'click', () => {
@@ -5167,7 +5401,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const _doSheetsLoad = () => {
-        if (_scPwdInput.value === 'ADMIN1') {
+        if (_scPwdInput.value.toUpperCase() === getAdminKey()) {
             closeSheetsConfirm();
             loadFromGoogleSheets();
         } else {
@@ -5231,7 +5465,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const _doExtend = async () => {
-        if (_extPwdInput.value === 'ADMIN1') {
+        if (_extPwdInput.value.toUpperCase() === getAdminKey()) {
             _extStep2.style.display = 'none';
             _extLoading.style.display = 'block';
             await extendScheduleFromSheets();
