@@ -679,6 +679,7 @@ td:first-child, .summary-table td:first-child, .distribution-table td:first-chil
 .btn-circular:hover { background-color: var(--corp-orange-hover); transform: scale(1.1) rotate(5deg); }
 
 .turno-CORRECCION { box-shadow: inset 0 0 0 3px rgba(245, 124, 0, 0.4); }
+.turno-NOVEDAD { box-shadow: inset 0 0 0 3px rgba(198, 40, 40, 0.65); }
 .non-working-row { background-color: #fff9c4 !important; font-style: italic; color: #795548 !important; }
 .card-stat { text-align: center; padding: 15px; border-radius: 8px; flex: 1; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 .coverage-detail-table th { background-color: var(--corp-blue) !important; color: #ffffff !important; }
