@@ -621,7 +621,7 @@ function isPlaceholderWorker(name) {
     return PLACEHOLDER_KEYWORDS.some(kw => new RegExp(`\\b${kw}\\b`).test(upper));
 }
 
-function applyLegalHours() {
+function applyLegalHours(fromDateStr = null) {
     // Lógica semanal (lunes a domingo) para los turnos base de 6.5h (códigos 1.1/2.2/4.4):
     // - Si el domingo de la semana es LBRE, todos los demás días de esa semana pasan al equivalente de 7h.
     // - Si no, sábado y domingo pasan al equivalente de 8h.
@@ -630,7 +630,10 @@ function applyLegalHours() {
     // - Entre semana, sin feriado, el turno se mantiene en su base de 6.5h.
     // Siempre se parte de worker.baseShifts (valor original importado) para que la función sea
     // idempotente sin importar cuántas veces se vuelva a ejecutar al cargar/extender datos.
+    // fromDateStr (opcional): recalcular solo desde la semana que contiene esa fecha —
+    // las semanas anteriores ya publicadas no se tocan (usado al aplicar rotaciones).
     appState.weeks.forEach(weekDates => {
+        if (fromDateStr && weekDates[weekDates.length - 1] < fromDateStr) return;
         const sundayDate    = weekDates.find(d => new Date(d + 'T00:00:00').getDay() === 0);
         const holidayInWeek = weekDates.some(d => appState.holidays.has(d));
 
@@ -1802,11 +1805,14 @@ function autoRotateAll() {
     }
 }
 
-function reapplyWorkerVacation(worker) {
+function reapplyWorkerVacation(worker, fromDateStr = null) {
     const master = appState.workerMasterData.find(m => m.id === worker.id);
     const inicia = master?.inicia || '';
     const finaliza = master?.finaliza || '';
     appState.dateHeaders.forEach(dateStr => {
+        // Con fromDateStr solo se reconstruye desde esa fecha: los días anteriores
+        // (semanas ya publicadas) conservan sus turnos tal como están en pantalla.
+        if (fromDateStr && dateStr < fromDateStr) return;
         const baseShiftName = worker.baseShifts?.[dateStr] || '';
         const baseShift = allShifts[baseShiftName] || { name: baseShiftName, hours: 0, className: 'turno-OTRO', isCoverageShift: false };
         const currentAisle = worker.dailyData[dateStr]?.aisle || worker.fixedData[1];
@@ -1815,7 +1821,7 @@ function reapplyWorkerVacation(worker) {
             ? { ...allShifts['VC'], aisle: currentAisle }
             : { ...baseShift, aisle: currentAisle };
     });
-    applyLegalHours();
+    applyLegalHours(fromDateStr);
 }
 
 function applyPendingSwaps(effectiveDateStr) {
@@ -1825,13 +1831,30 @@ function applyPendingSwaps(effectiveDateStr) {
         const seatA = appState.processedData.find(w => w.id === swap.idA);
         const seatB = appState.processedData.find(w => w.id === swap.idB);
         if (!seatA || !seatB) return;
+        const masterA = appState.workerMasterData.find(m => m.id === seatA.id);
+        const masterB = appState.workerMasterData.find(m => m.id === seatB.id);
+        // Hueco de vacaciones: si los datos vienen de la hoja PROG, el turno base durante
+        // la ventana VC quedó como 0SP (el turno real se perdió al guardarse como VC).
+        // Ese hueco NO debe transferirse: quien llega al pasillo conserva su propio turno
+        // esos días, y la persona de vacaciones sigue cubierta por su VC (se reaplica después).
+        const inVac  = (m, d) => !!(m && m.inicia && m.finaliza && d >= m.inicia && d <= m.finaliza);
+        const isHole = n => !n || n === '0SP' || n === 'VC';
         appState.dateHeaders.forEach(date => {
             if (date >= effectiveDateStr) {
                 // Solo intercambiar baseShifts (turnos base sin VC) — las VC se reaplican después
                 if (seatA.baseShifts && seatB.baseShifts) {
-                    const tempBase = seatA.baseShifts[date];
-                    seatA.baseShifts[date] = seatB.baseShifts[date];
-                    seatB.baseShifts[date] = tempBase;
+                    const baseA = seatA.baseShifts[date];
+                    const baseB = seatB.baseShifts[date];
+                    const holeA = isHole(baseA) && inVac(masterA, date);
+                    const holeB = isHole(baseB) && inVac(masterB, date);
+                    if (holeA && !holeB) {
+                        seatA.baseShifts[date] = baseB; // B conserva su turno; A queda cubierta por su VC
+                    } else if (holeB && !holeA) {
+                        seatB.baseShifts[date] = baseA;
+                    } else if (!holeA && !holeB) {
+                        seatA.baseShifts[date] = baseB;
+                        seatB.baseShifts[date] = baseA;
+                    }
                 }
                 // Intercambiar el aisle en dailyData (la persona "lleva" el pasillo del destino)
                 const aisleA = seatA.dailyData[date]?.aisle || seatA.fixedData[1];
@@ -1843,17 +1866,17 @@ function applyPendingSwaps(effectiveDateStr) {
         const lastDate = appState.dateHeaders[appState.dateHeaders.length - 1];
         seatA.fixedData[1] = seatA.dailyData[lastDate]?.aisle || seatA.fixedData[1];
         seatB.fixedData[1] = seatB.dailyData[lastDate]?.aisle || seatB.fixedData[1];
-        const masterA = appState.workerMasterData.find(m => m.id === seatA.id);
-        const masterB = appState.workerMasterData.find(m => m.id === seatB.id);
         if (masterA) masterA.pasillo = seatA.fixedData[1];
         if (masterB) masterB.pasillo = seatB.fixedData[1];
         affectedWorkerIds.add(seatA.id);
         affectedWorkerIds.add(seatB.id);
     });
-    // Re-aplicar los turnos reales y vacaciones propias de cada persona afectada
+    // Re-aplicar los turnos reales y vacaciones propias de cada persona afectada.
+    // Se recalculan las semanas de 6.5h/7h/8h SOLO desde la semana del cambio
+    // (la fecha efectiva es lunes = inicio de semana); lo anterior no se toca.
     affectedWorkerIds.forEach(id => {
         const worker = appState.processedData.find(w => w.id === id);
-        if (worker) reapplyWorkerVacation(worker);
+        if (worker) reapplyWorkerVacation(worker, effectiveDateStr);
     });
     const count = appState.pendingSwaps.length;
     appState.pendingSwaps = [];
@@ -4418,17 +4441,26 @@ async function autoLoadFromProgSheet() {
             const restrictionClass = restriccion.toUpperCase() === 'SI' ? 'restriccion-si' : 'restriccion-no';
 
             const workerInfo  = workerDataMap.get(workerExcelId);
-            const iniciaStr   = workerInfo ? formatExcelDate(workerInfo.INICIA)   : '';
-            const finalizaStr = workerInfo ? formatExcelDate(workerInfo.FINALIZA) : '';
+            let iniciaStr   = workerInfo ? formatExcelDate(workerInfo.INICIA)   : '';
+            let finalizaStr = workerInfo ? formatExcelDate(workerInfo.FINALIZA) : '';
 
             const dailyData  = {};
             const baseShifts = {};
+            const vcDates    = [];
             dateHeaders.forEach((ds, di) => {
                 const shiftName = String(row[PROG_FIXED + di] || '').trim();
                 const shift = allShifts[shiftName] || { name: shiftName || '0SP', hours: 0, className: 'turno-OTRO', isCoverageShift: false };
                 dailyData[ds]  = { ...shift, aisle: equipo };
                 baseShifts[ds] = shiftName === 'VC' ? '0SP' : (shiftName || '0SP');
+                if (shiftName === 'VC') vcDates.push(ds);
             });
+            // Vacaciones deben viajar CON la persona al rotar de pasillo: si PLANTA no
+            // trae INICIA/FINALIZA pero el PROG tiene celdas VC, inferir la ventana desde
+            // las celdas para que reapplyWorkerVacation las conserve tras el intercambio.
+            if ((!iniciaStr || !finalizaStr) && vcDates.length > 0) {
+                iniciaStr   = vcDates[0];
+                finalizaStr = vcDates[vcDates.length - 1];
+            }
 
             const placeholder3 = isPlaceholderWorker(fixedData[0]);
             processedData.push({ id: idx, workerExcelId, fixedData, dailyData, restrictionClass, baseShifts, isPlaceholder: placeholder3 });
